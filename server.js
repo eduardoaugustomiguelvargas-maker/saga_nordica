@@ -16,6 +16,10 @@ let proximoId = 1;
 
 const servidor = http.createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
+    if (url === "/status") {   // ajuda a conferir no navegador quantas salas e jogadores existem
+        const o = {}; for (const [n, m] of salas) o[n] = [...m.values()].map(c => c.pres && c.pres.n ? c.pres.n + " (" + (c.pres.m || "?") + ")" : c.id);
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify({ salas: o }, null, 1)); return;
+    }
     if (url === "/health") { res.writeHead(200, { "Content-Type": "text/plain" }); res.end("ok"); return; }
     if (url === "/" || url === "/jogo.html" || url === "/index.html") {
         fs.readFile(ARQUIVO_JOGO, (err, dados) => {

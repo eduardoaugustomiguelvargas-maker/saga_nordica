@@ -917,7 +917,7 @@ body { background: transparent; }
 
     <section class="painel escondida" id="p-mp">
         <h2>Multiplayer</h2>
-        <p class="suave" id="mp-status">Jogue com amigos em tempo real: todos usam o mesmo código de sala e o link do jogo no Claude.</p>
+        <p class="suave" id="mp-status">Jogue com amigos em tempo real: todos abrem o mesmo endereço do servidor e usam o mesmo código de sala.</p>
         <div class="mp-form">
             <label>Seu nome <input id="mp-nome" maxlength="14" autocomplete="off"></label>
             <label>Código da sala <input id="mp-sala" maxlength="20" autocomplete="off" placeholder="ex.: asgard7"></label>
@@ -2925,6 +2925,14 @@ function verificarQuests() {
 
 // --- MOVIMENTO, PROXIMIDADE E REGIÕES ---
 function vetorEntrada() {
+    const r = vetorEntradaBruto();
+    if (!trasAtivo()) return r;
+    // câmera traseira: A/D giram (ver trasGirar), W/S andam para onde o herói olha
+    if (Math.abs(r.y) < 0.05) return { x: 0, y: 0, l: 0 };
+    const f = -r.y * (r.y > 0 ? 0.6 : 1);
+    return { x: Math.cos(P.yaw) * f, y: Math.sin(P.yaw) * f, l: Math.abs(f) };
+}
+function vetorEntradaBruto() {
     let mx = 0, my = 0;
     if (teclas["a"] || teclas["arrowleft"]) mx -= 1;
     if (teclas["d"] || teclas["arrowright"]) mx += 1;
@@ -2939,6 +2947,7 @@ function vetorEntrada() {
 function naVila(x, y) { const cd = defMundo.cidade; return mapaAtual === "Midgard_Aberto" && Math.hypot(x - cd.x, y - cd.y) < cd.r; }
 
 function atualizarMovimentoJogador(dt) {
+    if (trasAtivo()) trasGirar(dt);
     const v = vetorEntrada();
     if (v.l > 0.1) P.mvang = Math.atan2(v.y, v.x);
     P.movendo = v.l > 0.1;
@@ -3137,50 +3146,54 @@ function sairDaCaverna() {
 
 // --- RENDERIZADOR GRÁFICO COM Y-SORTING ---
 function desenharMundo(c) {
-    c.clearRect(0, 0, VW, VH);
-    c.save();
-    const tr = shake * intensidadeTremor();
-    if (tr > 0.3) c.translate((Math.random() - 0.5) * tr, (Math.random() - 0.5) * tr);
+    const tras = trasAtivo();
     const noMundo = mapaAtual === "Midgard_Aberto";
-    const vw = VW / zoom, vh = VH / zoom;
-    if (noMundo) {
-        try { { const ke = chaoMundo.esc || ESC_CHAO; c.drawImage(chaoMundo, cam.x * ke, cam.y * ke, vw * ke, vh * ke, 0, 0, VW, VH); } }
-        catch (e) { c.fillStyle = (regiaoEm(P.x, P.y) || {}).cor || "#8a9aa6"; c.fillRect(0, 0, VW, VH); }
-    }
-    else c.drawImage(chaoDoMapa(), cam.x, cam.y, vw, vh, 0, 0, VW, VH);
+    if (tras) desenharCenaTras(c);
+    else {
+        c.clearRect(0, 0, VW, VH);
+        c.save();
+        const tr = shake * intensidadeTremor();
+        if (tr > 0.3) c.translate((Math.random() - 0.5) * tr, (Math.random() - 0.5) * tr);
+        const vw = VW / zoom, vh = VH / zoom;
+        if (noMundo) {
+            try { { const ke = chaoMundo.esc || ESC_CHAO; c.drawImage(chaoMundo, cam.x * ke, cam.y * ke, vw * ke, vh * ke, 0, 0, VW, VH); } }
+            catch (e) { c.fillStyle = (regiaoEm(P.x, P.y) || {}).cor || "#8a9aa6"; c.fillRect(0, 0, VW, VH); }
+        }
+        else c.drawImage(chaoDoMapa(), cam.x, cam.y, vw, vh, 0, 0, VW, VH);
 
-    c.save();
-    c.scale(zoom, zoom);
-    c.translate(-Math.round(cam.x), -Math.round(cam.y));
-    desenharPegadas(c);
-    desenharParkour(c);
-    desenharZonas(c);
-    desenharPickups(c);
+        c.save();
+        c.scale(zoom, zoom);
+        c.translate(-Math.round(cam.x), -Math.round(cam.y));
+        desenharPegadas(c);
+        desenharParkour(c);
+        desenharZonas(c);
+        desenharPickups(c);
 
-    const lista = [];
-    const objs = objetosDoMapa();
-    const mx = 160;
-    for (const o of objs) {
-        if (o.x < cam.x - mx || o.x > cam.x + vw + mx || o.y < cam.y - 40 || o.y > cam.y + vh + 200) continue;
-        lista.push({ y: o.y, f: () => desenharObjeto(c, o) });
-    }
-    for (const n of npcsDoMapa()) lista.push({ y: n.y, f: () => desenharNpc(c, n) });
-    if (noMundo) {
-        for (const k of cristais) if (k.vivo) lista.push({ y: k.y, f: () => desenharCristal(c, k) });
-    }
-    tochasNaLista(lista, c);
-    if (typeof expedNaLista === "function") expedNaLista(lista, c);
-    if (odinVisivel()) lista.push({ y: odin.y, f: () => desenharOdin(c) });
-    for (const e of inimigos) lista.push({ y: e.y + (e.boss ? 20 : 0), f: () => desenharInimigo(c, e) });
-    if (typeof mpDesenharRemotos === "function") mpDesenharRemotos(lista, c);
-    lista.push({ y: P.y + 6, f: () => desenharJogadorFx(c) });
-    lista.sort((a, b) => a.y - b.y);
-    for (const d of lista) d.f();
+        const lista = [];
+        const objs = objetosDoMapa();
+        const mx = 160;
+        for (const o of objs) {
+            if (o.x < cam.x - mx || o.x > cam.x + vw + mx || o.y < cam.y - 40 || o.y > cam.y + vh + 200) continue;
+            lista.push({ y: o.y, f: () => desenharObjeto(c, o) });
+        }
+        for (const n of npcsDoMapa()) lista.push({ y: n.y, f: () => desenharNpc(c, n) });
+        if (noMundo) {
+            for (const k of cristais) if (k.vivo) lista.push({ y: k.y, f: () => desenharCristal(c, k) });
+        }
+        tochasNaLista(lista, c);
+        if (typeof expedNaLista === "function") expedNaLista(lista, c);
+        if (odinVisivel()) lista.push({ y: odin.y, f: () => desenharOdin(c) });
+        for (const e of inimigos) lista.push({ y: e.y + (e.boss ? 20 : 0), f: () => desenharInimigo(c, e) });
+        if (typeof mpDesenharRemotos === "function") mpDesenharRemotos(lista, c);
+        lista.push({ y: P.y + 6, f: () => desenharJogadorFx(c) });
+        lista.sort((a, b) => a.y - b.y);
+        for (const d of lista) d.f();
 
-    desenharFxMovimento(c);
-    desenharEfeitos(c);
-    c.restore();
-    c.restore();
+        desenharFxMovimento(c);
+        desenharEfeitos(c);
+        c.restore();
+        c.restore();
+    }
 
     desenharNeve(c);
     if (noMundo && (defMundo.id === "midgard" || defMundo.id === "jotunheim")) {   // gradação de cor: Midgard mais quente, Jötunheim gélido
@@ -4680,7 +4693,9 @@ function burst(x, y, col, n, spd, life) {
 function anel(x, y, max, col, life) { parts.push({ anel: true, x, y, r: 4, max, life, lmax: life, col }); }
 function texto(x, y, txt, col) { textos.push({ x, y, txt: String(txt), col: col || "#dce9f0", life: 0.7 }); }
 
+function mouseNoMundo() { return mouse.active && !trasAtivo(); }
 function anguloMira() {
+    if (trasAtivo()) return trasMira();
     if (mouse.active) return Math.atan2(mouse.y / zoom + cam.y - P.y, mouse.x / zoom + cam.x - P.x);
     let melhor = null, bd = 220;
     for (const e of inimigos) {
@@ -4809,7 +4824,7 @@ function atacar() {
         }
         // linha de raio do golpe: vai até o ponto onde o mouse está (no toque, até o inimigo mais próximo)
         let lx, ly;
-        if (mouse.active) { lx = mouse.x / zoom + cam.x; ly = mouse.y / zoom + cam.y; }
+        if (mouseNoMundo()) { lx = mouse.x / zoom + cam.x; ly = mouse.y / zoom + cam.y; }
         else { lx = P.x + ca * 300; ly = P.y + sa * 300; }
         const ld = clamp(Math.hypot(lx - P.x, ly - P.y), 120, 460), la = Math.atan2(ly - P.y, lx - P.x);
         const ex = P.x + Math.cos(la) * ld, ey = P.y + Math.sin(la) * ld;
@@ -4888,7 +4903,7 @@ function arremessarMjolnir() {
     if (P.mj || P.mjCd > 0) return;
     // o martelo voa até o ponto marcado pelo mouse (no toque, até o inimigo mais próximo)
     let alvoX, alvoY, a;
-    if (mouse.active) { alvoX = mouse.x / zoom + cam.x; alvoY = mouse.y / zoom + cam.y; a = Math.atan2(alvoY - P.y, alvoX - P.x); }
+    if (mouseNoMundo()) { alvoX = mouse.x / zoom + cam.x; alvoY = mouse.y / zoom + cam.y; a = Math.atan2(alvoY - P.y, alvoX - P.x); }
     else { a = anguloMira(); alvoX = P.x + Math.cos(a) * 300; alvoY = P.y + Math.sin(a) * 300; }
     const d = clamp(Math.hypot(alvoX - P.x, alvoY - P.y), 140, 520);
     P.mj = { x: P.x, y: P.y, a, dist: 0, max: 700, out: true, parado: false, hit: new Set(), rot: 0, hits: 0, maxHits: 5 + (Math.random() < 0.5 ? 1 : 0) + (S.mjEco || 0), alvo: null };
@@ -4902,7 +4917,7 @@ function teleportar() {
     if (!temHab("p_tp")) { aviso2("p_tp", "o Teleporte"); return; }
     if (P.tpCd > 0) return;
     let tx, ty;
-    if (mouse.active) { tx = mouse.x / zoom + cam.x; ty = mouse.y / zoom + cam.y; }
+    if (mouseNoMundo()) { tx = mouse.x / zoom + cam.x; ty = mouse.y / zoom + cam.y; }
     else {
         const v = vetorEntrada(), a = v.l > 0.1 ? Math.atan2(v.y, v.x) : P.face;
         tx = P.x + Math.cos(a) * 260; ty = P.y + Math.sin(a) * 260;
@@ -5115,9 +5130,10 @@ function desenharZonas(c) {
 
 const COR_RUNA = { fehu: "#7bd88f", thur: "#e0a93f", algiz: "#66fcf1", raidho: "#f09a52" };
 
-function desenharPickups(c) {
-    for (const pk of pickups) {
-        if (pk.life < 3 && Math.floor(T / 100) % 2 === 0) continue;
+function desenharPickups(c) { for (const pk of pickups) desenharPickup(c, pk); }
+function desenharPickup(c, pk) {
+    {
+        if (pk.life < 3 && Math.floor(T / 100) % 2 === 0) return;
         const bob = Math.sin(T * 0.005 + pk.ph) * 3;
         if (pk.tipo === "item") {
             const cor = COR_RARIDADE[pk.item.raridade];
@@ -5144,8 +5160,7 @@ function desenharPickups(c) {
     }
 }
 
-function desenharEfeitos(c) {
-    for (const q of proj) {
+function desenharProj(c, q) {
         if (q.rune) {
             c.fillStyle = "rgba(179,140,255,0.28)"; c.beginPath(); c.arc(q.x, q.y, q.r + 6, 0, TAU); c.fill();
             desenharRuna(c, q.rt, q.x, q.y, q.r, "#d7c2ff", 2.4);
@@ -5164,15 +5179,9 @@ function desenharEfeitos(c) {
             c.fillStyle = "rgba(127,227,154,0.25)"; c.beginPath(); c.arc(q.x, q.y, q.r + 4, 0, TAU); c.fill();
             c.fillStyle = "#7fe39a"; c.beginPath(); c.arc(q.x, q.y, q.r, 0, TAU); c.fill();
         }
-    }
-    for (const q of aneisD) {
-        c.save(); c.translate(q.x, q.y); c.rotate(q.rot);
-        c.strokeStyle = "rgba(240,194,77,0.3)"; c.lineWidth = 9; c.beginPath(); c.arc(0, 0, q.r, 0, TAU); c.stroke();
-        c.strokeStyle = "#f0c24d"; c.lineWidth = 3.5; c.beginPath(); c.arc(0, 0, q.r, 0, TAU); c.stroke();
-        c.fillStyle = "#fff2c0"; c.fillRect(q.r - 1.5, -1.5, 3, 3);
-        c.restore();
-    }
-    if (P.mj) {
+}
+
+function desenharMjolnirVoando(c) {
         c.save(); c.translate(P.mj.x, P.mj.y); c.rotate(P.mj.rot);
         const im = icone("mjolnir");
         if (im) { const h = 40, w = h * im.naturalWidth / im.naturalHeight; c.drawImage(im, -w / 2, -h / 2, w, h); }
@@ -5183,7 +5192,18 @@ function desenharEfeitos(c) {
         }
         if (P.mj.parado) { c.rotate(-P.mj.rot); c.strokeStyle = "rgba(224,169,63," + (0.4 + 0.4 * Math.sin(T * 0.008)) + ")"; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, 24, 0, TAU); c.stroke(); }
         c.restore();
+}
+
+function desenharEfeitos(c) {
+    for (const q of proj) desenharProj(c, q);
+    for (const q of aneisD) {
+        c.save(); c.translate(q.x, q.y); c.rotate(q.rot);
+        c.strokeStyle = "rgba(240,194,77,0.3)"; c.lineWidth = 9; c.beginPath(); c.arc(0, 0, q.r, 0, TAU); c.stroke();
+        c.strokeStyle = "#f0c24d"; c.lineWidth = 3.5; c.beginPath(); c.arc(0, 0, q.r, 0, TAU); c.stroke();
+        c.fillStyle = "#fff2c0"; c.fillRect(q.r - 1.5, -1.5, 3, 3);
+        c.restore();
     }
+    if (P.mj) desenharMjolnirVoando(c);
     for (const q of parts) {
         const a = Math.max(0, q.life / (q.anel ? q.lmax : q.max));
         if (q.anel) { c.strokeStyle = q.col; c.globalAlpha = a * 0.8; c.lineWidth = 3; c.beginPath(); c.arc(q.x, q.y, q.r, 0, TAU); c.stroke(); c.globalAlpha = 1; }
@@ -6335,7 +6355,7 @@ function trapacaTudo() {
 }
 </script>
 <script>
-/* mp.js: multiplayer em tempo real (salas do Claude). Co-op no mesmo mundo + PvP opcional.
+/* mp.js: multiplayer em tempo real (servidor no Render, por WebSocket). Co-op no mesmo mundo + PvP opcional.
    Um dos jogadores do mesmo mundo é o "anfitrião": ele simula os monstros e envia o estado aos outros. */
 const MP = {
     ativo: false, sala: null, nome: "", codigo: "", pvp: false, meuPeer: null, hostPeer: null, host: true,
@@ -6360,11 +6380,8 @@ async function mpEntrar(nome, codigo) {
     nome = mpTxt(nome, 14).trim() || "Viajante";
     codigo = String(codigo || "").toLowerCase().replace(/[^a-z0-9_.-]/g, "").slice(0, 20);
     if (!codigo) { mpStatus("Escolha um código de sala (letras e números). Quem usar o mesmo código entra junto."); return; }
-    let room = null;
-    const viaClaude = !!(window.claude && window.claude.use);
-    if (viaClaude) { try { room = await window.claude.use("room"); } catch (e) { room = null; } }
-    else room = mpAdaptadorWS();
-    if (!room) { mpStatus(viaClaude ? "Não foi possível conectar. É preciso estar logado no Claude e ter acesso de colaborador ao jogo." : "O multiplayer só funciona quando o jogo é aberto pelo endereço do servidor (Render) ou pelo link do Claude, não pelo arquivo solto."); return; }
+    const room = mpAdaptadorWS();
+    if (!room) { mpStatus("O multiplayer só funciona quando o jogo é aberto pelo endereço do servidor (Render), não pelo arquivo solto."); return; }
     mpStatus("Conectando...");
     let sala = null;
     try { sala = await room.join("saga-" + codigo); } catch (e) { sala = null; }
@@ -6677,22 +6694,41 @@ function mpEnviarChat(t) {
 function mpCor(peer) { let h = 0; for (let i = 0; i < peer.length; i++) h = (h * 31 + peer.charCodeAt(i)) % 360; return "hsl(" + h + ",65%,52%)"; }
 function mpDesenharRemotos(lista, c) {
     if (!MP.ativo) return;
-    for (const r of mpJogadoresMundo()) lista.push({ y: r.y + 6, f: () => mpDesenharRemoto(c, r) });
+    for (const r of mpJogadoresMundo()) {
+        lista.push({ y: r.y + 6, f: () => mpDesenharRemoto(c, r) });
+        lista.push({ y: 9e6, f: () => { c.save(); c.globalAlpha = 0.38; mpDesenharRemoto(c, r); c.restore(); } });   // silhueta por cima: o amigo nunca some atrás das árvores
+    }
 }
 function mpDesenharRemoto(c, r) {
-    const x = r.x, y = r.y, cor = mpCor(r.peer), face = r.f / 100;
+    const x = r.x, y = r.y, cor = mpCor(r.peer), face = r.f / 100, mov = r.mv ? Math.sin(T * 0.016) : 0, sw = r.sw ? 1 : 0, R = 13;
     c.save();
     c.fillStyle = "rgba(0,0,0,0.35)"; c.beginPath(); c.ellipse(x, y + 8, 15, 8, 0, 0, TAU); c.fill();
     c.translate(x, y); c.rotate(face);
-    const sw = r.sw ? 1 : 0;
-    c.strokeStyle = "#cfd8de"; c.lineWidth = 4; c.lineCap = "round";
-    c.beginPath(); c.moveTo(8, 6); c.lineTo(28 + sw * 8, 6 - sw * 10); c.stroke();
-    c.lineWidth = 1.5; c.strokeStyle = "rgba(10,14,18,0.75)";
-    c.fillStyle = cor; c.beginPath(); c.arc(-4, 0, 15, 0, TAU); c.fill(); c.stroke();
-    c.fillStyle = "#6a4630"; c.beginPath(); c.arc(0, 0, 12, 0, TAU); c.fill(); c.stroke();
-    c.fillStyle = "#b9c6cf"; c.beginPath(); c.arc(0, 0, 8, 0, TAU); c.fill(); c.stroke();
-    c.fillStyle = "#10202c"; c.fillRect(3, -2, 4, 4);
+    c.strokeStyle = "rgba(10,14,18,0.85)"; c.lineWidth = 1.4;
+    // capa na cor do jogador
+    c.fillStyle = cor; c.beginPath(); c.moveTo(-R * 0.2, -R * 0.95); c.lineTo(-R * 1.6, -R * 0.7); c.lineTo(-R * 2.4, 0); c.lineTo(-R * 1.6, R * 0.7); c.lineTo(-R * 0.2, R * 0.95); c.closePath(); c.fill(); c.stroke();
+    // botas
+    c.fillStyle = "#2c1c12"; c.beginPath(); c.ellipse(mov * 5 - 2, -R * 0.5, 5.5, 3.6, 0, 0, TAU); c.fill(); c.stroke();
+    c.beginPath(); c.ellipse(-mov * 5 - 2, R * 0.5, 5.5, 3.6, 0, 0, TAU); c.fill(); c.stroke();
+    // escudo
+    c.fillStyle = "#7a4a24"; c.beginPath(); c.arc(2, R * 0.95, R * 0.82, 0, TAU); c.fill(); c.strokeStyle = "#b9c3cc"; c.lineWidth = 2; c.stroke();
+    // arma
+    c.strokeStyle = "#7a5a3a"; c.lineWidth = 4; c.lineCap = "round";
+    c.beginPath(); c.moveTo(8, -R * 0.65); c.lineTo(34 + sw * 14, -R * 0.65 - sw * 8); c.stroke();
+    c.strokeStyle = "#dfe7ec"; c.lineWidth = 3; c.beginPath(); c.moveTo(26 + sw * 14, -R * 0.65 - sw * 8); c.lineTo(46 + sw * 14, -R * 0.65 - sw * 12); c.stroke();
+    // tronco, ombreiras e elmo com chifres
+    c.strokeStyle = "rgba(10,14,18,0.85)"; c.lineWidth = 1.6;
+    c.fillStyle = "#6a4630"; c.beginPath(); c.ellipse(-1, 0, R * 0.82, R * 1.02, 0, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = "#9aa7b2"; c.beginPath(); c.ellipse(0, -R * 0.88, 6, 4.6, -0.3, 0, TAU); c.fill(); c.stroke();
+    c.beginPath(); c.ellipse(0, R * 0.88, 6, 4.6, 0.3, 0, TAU); c.fill(); c.stroke();
+    c.strokeStyle = "#f1e7cf"; c.lineWidth = 3.2; c.beginPath(); c.moveTo(-1, -7); c.quadraticCurveTo(-4, -R * 1.35, 3, -R * 1.55); c.stroke();
+    c.beginPath(); c.moveTo(-1, 7); c.quadraticCurveTo(-4, R * 1.35, 3, R * 1.55); c.stroke();
+    c.fillStyle = "#c4cfd8"; c.strokeStyle = "rgba(10,14,18,0.85)"; c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, 8.6, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = "#d98c3c"; c.beginPath(); c.ellipse(6.5, 0, 3.4, 5, 0, -1.4, 1.4); c.fill();
     c.restore();
+    // um círculo de luz na cor do jogador: sempre dá para achá-lo no meio das árvores
+    c.save(); c.strokeStyle = cor; c.globalAlpha = 0.55 + 0.25 * Math.sin(T * 0.005); c.lineWidth = 2;
+    c.beginPath(); c.ellipse(x, y + 9, 22, 10, 0, 0, TAU); c.stroke(); c.restore();
     c.save();
     c.textAlign = "center"; c.font = "700 12px 'Alegreya Sans', sans-serif";
     const nome = r.n + (r.as ? " ✦" + r.as : "") + " · Nv " + r.nv;
@@ -6704,8 +6740,28 @@ function mpDesenharRemoto(c, r) {
     c.fillStyle = f > 0.35 ? "#59c26b" : "#d9534f"; c.fillRect(x - hw / 2, y - 34, hw * f, 4);
     c.restore();
 }
+// setas na borda da tela apontando para os amigos que estão fora de vista (no mesmo mundo)
+function mpSetas(c) {
+    if (!MP.ativo || estado !== "jogo" || !mpAberto() || (typeof trasAtivo === "function" && trasAtivo())) return;
+    for (const r of mpJogadoresMundo()) {
+        const sx = (r.x - cam.x) * zoom, sy = (r.y - cam.y) * zoom;
+        if (sx > 20 && sx < VW - 20 && sy > 30 && sy < VH - 30) continue;
+        const cx = VW / 2, cy = VH / 2, dx = sx - cx, dy = sy - cy, k = Math.min((VW / 2 - 34) / Math.abs(dx || 1), (VH / 2 - 44) / Math.abs(dy || 1));
+        const ax = cx + dx * k, ay = cy + dy * k, ang = Math.atan2(dy, dx), cor = mpCor(r.peer), dist = Math.round(Math.hypot(r.x - P.x, r.y - P.y) / 10);
+        c.save(); c.translate(ax, ay); c.rotate(ang);
+        c.fillStyle = cor; c.strokeStyle = "rgba(0,0,0,0.8)"; c.lineWidth = 2;
+        c.beginPath(); c.moveTo(14, 0); c.lineTo(-8, -9); c.lineTo(-4, 0); c.lineTo(-8, 9); c.closePath(); c.fill(); c.stroke();
+        c.restore();
+        c.save(); c.textAlign = "center"; c.font = "700 11px 'Alegreya Sans', sans-serif";
+        const t = r.n + " · " + dist + " m", w = c.measureText(t).width + 10;
+        const tx = clamp(ax - Math.cos(ang) * 38, w / 2 + 6, VW - w / 2 - 6), ty = clamp(ay - Math.sin(ang) * 26, 18, VH - 18);
+        c.fillStyle = "rgba(8,12,16,0.75)"; c.fillRect(tx - w / 2, ty - 11, w, 15); c.fillStyle = "#e8f0f5"; c.fillText(t, tx, ty);
+        c.restore();
+    }
+}
 function mpDesenharChat(c) {
     if (!MP.ativo) return;
+    mpSetas(c);
     const msgs = MP.chat.filter(m => m.ttl > 0).slice(-5);
     c.save(); c.textAlign = "left"; c.font = "600 13px 'Alegreya Sans', sans-serif";
     let y = VH - 110 - msgs.length * 18;
@@ -6747,10 +6803,32 @@ function mpAtualizarPainel() {
         const eu = document.createElement("li"); eu.textContent = MP.nome + " (você)"; lista.appendChild(eu);
         for (const r of MP.outros) {
             const li = document.createElement("li");
-            li.textContent = r.n + " · Nv " + r.nv + " · " + (NOMES_TERRA[r.m] || r.m || "?") + (r.pv ? " · PvP" : "");
+            const onde = r.o === 1 ? (NOMES_TERRA[r.m] || r.m || "?") : "numa caverna ou interior";
+            const mesmo = mpMesmo(r);
+            li.textContent = r.n + " · Nv " + r.nv + " · " + onde + (mesmo ? " (perto de você)" : r.o === 1 ? " (outro mundo)" : "") + (r.pv ? " · PvP" : "") + " ";
+            if (r.o === 1 && mpAberto() && estado !== "menu") {
+                const b = document.createElement("button"); b.type = "button"; b.className = "btn-menu pequeno"; b.textContent = mesmo ? "Ir até ele" : "Juntar-se a ele";
+                b.addEventListener("click", () => mpIrAte(r.peer));
+                li.appendChild(b);
+            }
             lista.appendChild(li);
         }
     }
+}
+// leva você para perto do amigo, mesmo que ele esteja em outro mundo
+function mpIrAte(peer) {
+    const r = MP.porPeer[peer];
+    if (!r || r.o !== 1 || !MUNDOS[r.m]) { aviso("Ele não está num mundo aberto agora", "#ff9a8a", 3); return; }
+    const ir = () => {
+        if (r.m !== mundoId) irParaTerra(r.m, r.x + 44, r.y + 20);
+        else { P.x = r.x + 44; P.y = r.y + 20; P.kx = P.ky = 0; atualizarCamera(); }
+        const q = pontoLivreProximo(P.x, P.y, P.r + 2); P.x = q.x; P.y = q.y;
+        colisores = construirColisores(objetosMundoAberto, npcs);
+        mpPresenca(true);
+        aviso("Você chegou perto de " + r.n, "#9fe8ff", 3);
+    };
+    fecharPainel();
+    setTimeout(ir, 50);
 }
 function abrirMP() {
     try {
@@ -7221,7 +7299,7 @@ function alternarSom() {
 })();
 
 // --- CONFIGURAÇÕES (guardadas só neste navegador) ---
-const CONFIG = { som: true, tremor: true, tremorInt: 1, zoomUsr: 1, zoomAuto: true, camSuave: true, movFx: true, luzes: true, clima: "completo", toque: "auto", escalaToque: 1 };
+const CONFIG = { som: true, tremor: true, tremorInt: 1, zoomUsr: 1, camTras: false, zoomAuto: true, camSuave: true, movFx: true, luzes: true, clima: "completo", toque: "auto", escalaToque: 1 };
 const CHAVE_CONFIG = "saga_ragnarok_config_v1";
 
 function carregarConfig() {
@@ -7239,6 +7317,7 @@ function atualizarConfigUI() {
     set("cfg-tremor", CONFIG.tremor ? "Ligado" : "Desligado");
     set("cfg-toque", ROTULO_TOQUE[CONFIG.toque]);
     const lg = v => v ? "Ligado" : "Desligado";
+    set("cfg-camtras", CONFIG.camTras ? "Traseira" : "Clássica");
     set("cfg-zauto", lg(CONFIG.zoomAuto)); set("cfg-camsuave", lg(CONFIG.camSuave)); set("cfg-movfx", lg(CONFIG.movFx)); set("cfg-luzes", lg(CONFIG.luzes));
     set("cfg-clima", { completo: "Completo", leve: "Leve", off: "Desligado" }[CONFIG.clima] || "Completo");
     const rz = document.getElementById("cfg-zoom"); if (rz) rz.value = CONFIG.zoomUsr;
@@ -7624,7 +7703,7 @@ function atualizarZoom(dt, alvoAdj) {
     zoomAdj += (alvoAdj - zoomAdj) * (1 - Math.exp(-dt * 2.2));
     zoomPunch += (1 - zoomPunch) * (1 - Math.exp(-dt * 3.2));
     if (fadeEntrada > 0) fadeEntrada = Math.max(0, fadeEntrada - dt * 1.7);
-    zoom = zoomEfetivo();
+    zoom = trasAtivo() ? 1 : zoomEfetivo();
 }
 
 // Chamado quando o mapa ou o mundo muda: pequena aproximação e escurecimento rápido
@@ -7636,6 +7715,7 @@ function transicaoDeCamera() {
 }
 
 function atualizarCamera(dt) {
+    if (trasAtivo()) { atualizarCameraTras(dt); return; }
     if (mapaAtual !== _mapaVisto || mundoId !== _mundoVisto) {
         const primeira = _mapaVisto === null;
         _mapaVisto = mapaAtual; _mundoVisto = mundoId;
@@ -7854,7 +7934,7 @@ function coletarLuzes() {
     const noite = escuridao();
     if (noMundo) {
         for (const o of objetosMundoAberto) {
-            if (o.x < cam.x - mg || o.x > cam.x + vw + mg || o.y < cam.y - mg || o.y > cam.y + vh + mg) continue;
+            if (!luzVisivel(o.x, o.y, mg)) continue;
             const t = o.type;
             if (t === "fogueira") luz(o.x, o.y - 8, 210, "255,150,60", 1, 1);
             else if (t === "forja") luz(o.x, o.y - 14, 190, "255,120,40", 0.95, 1);
@@ -7865,10 +7945,10 @@ function coletarLuzes() {
             else if (t === "cave" || t === "cave_selada") luz(o.x, o.y - 6, 120, o.rgb || "170,200,255", 0.55, 0.3);
             else if (t === "cogu") luz(o.x, o.y - o.h * 0.7, 80, ["200,160,255", "160,230,255", "255,170,210"][o.v % 3], 0.5, 0.3);
         }
-        for (const k of cristais) if (k.vivo && k.x > cam.x - mg && k.x < cam.x + vw + mg && k.y > cam.y - mg && k.y < cam.y + vh + mg) luz(k.x, k.y - 12, 80, "130,225,255", 0.6, 0.4);
+        for (const k of cristais) if (k.vivo && luzVisivel(k.x, k.y, mg)) luz(k.x, k.y - 12, 80, "130,225,255", 0.6, 0.4);
         if (mundoId === "svartalfheim") {
             [[2800, 500, 300], [3700, 1000, 260], [2500, 1200, 220], [3900, 380, 200]].forEach(l => {
-                if (l[0] > cam.x - 400 && l[0] < cam.x + vw + 400 && l[1] > cam.y - 300 && l[1] < cam.y + vh + 300) luz(l[0], l[1], l[2] * 1.35, "255,110,30", 0.85, 1);
+                if (luzVisivel(l[0], l[1], 400)) luz(l[0], l[1], l[2] * 1.35, "255,110,30", 0.85, 1);
             });
         }
         if (typeof expedLuzes === "function") expedLuzes(luz);
@@ -7876,13 +7956,21 @@ function coletarLuzes() {
     }
     // luzes dinâmicas: raios, projéteis e habilidades
     for (const b of raios) luz(b.x2, b.y2, b.grande ? 300 : 170, "255,235,170", Math.min(1, b.life * 4), 0);
-    for (const q of proj) { if (q.x > cam.x - 60 && q.x < cam.x + vw + 60 && q.y > cam.y - 60 && q.y < cam.y + vh + 60) luz(q.x, q.y, 70, q.rune ? "190,140,255" : "255,200,120", 0.5, 0.5); }
+    for (const q of proj) { if (luzVisivel(q.x, q.y, 60)) luz(q.x, q.y, 70, q.rune ? "190,140,255" : "255,200,120", 0.5, 0.5); }
     if (P.mj) luz(P.mj.x, P.mj.y, 100, "255,220,140", 0.8, 0.4);
     if (P.swing > 0) luz(P.x, P.y, 120, "255,240,200", 0.5, 0);
     if (P.shield > 0) luz(P.x, P.y, 90, "102,252,241", 0.5, 0.3);
     if (P.decretoT > 0) luz(P.x, P.y, 420, "255,230,150", 0.9, 0.2);
     // o lampião do herói: só nas horas escuras
     luz(P.x, P.y - 6, 150 + 40 * noite, "255,225,170", 0.6 + 0.3 * noite, 0.4, true);
+}
+function projLuz(x, y) {
+    if (trasAtivo()) { const p = trasProj(x, y); return p ? { x: p.sx, y: p.sy - 14 * p.s, k: p.s } : null; }
+    return { x: (x - cam.x) * zoom, y: (y - cam.y) * zoom, k: zoom };
+}
+function luzVisivel(x, y, m) {
+    if (trasAtivo()) return Math.hypot(x - P.x, y - P.y) < 2300;
+    return x > cam.x - m && x < cam.x + VW / zoom + m && y > cam.y - m && y < cam.y + VH / zoom + m;
 }
 function hexParaRgb(h) {
     if (!h || h[0] !== "#" || h.length < 7) return "160,220,255";
@@ -7918,7 +8006,8 @@ function desenharIluminacao(c) {
         lg.globalCompositeOperation = "destination-out";
         for (const l of luzes) {
             const fl = l.tr ? 1 + Math.sin(T * 0.013 + l.x * 0.7) * 0.06 * l.tr + Math.sin(T * 0.031 + l.y) * 0.04 * l.tr : 1;
-            const px = (l.x - cam.x) * zoom * sx, py = (l.y - cam.y) * zoom * sy, rr = l.r * fl * zoom * sx;
+            const q = projLuz(l.x, l.y); if (!q) continue;
+            const px = q.x * sx, py = q.y * sy, rr = l.r * fl * q.k * sx;
             if (px < -rr || px > W + rr || py < -rr || py > H + rr) continue;
             const gr = lg.createRadialGradient(px, py, rr * 0.08, px, py, rr);
             const fa = Math.min(1, l.f);
@@ -7933,7 +8022,8 @@ function desenharIluminacao(c) {
     for (const l of luzes) {
         if (l.sb) continue;   // o lampião do herói só ilumina, não brilha
         const fl = l.tr ? 1 + Math.sin(T * 0.013 + l.x * 0.7) * 0.08 * l.tr + Math.sin(T * 0.031 + l.y) * 0.05 * l.tr : 1;
-        const px = (l.x - cam.x) * zoom, py = (l.y - cam.y) * zoom, rr = l.r * 0.62 * fl * zoom;
+        const q = projLuz(l.x, l.y); if (!q) continue;
+        const px = q.x, py = q.y, rr = l.r * 0.62 * fl * q.k;
         if (px < -rr || px > VW + rr || py < -rr || py > VH + rr) continue;
         const gr = c.createRadialGradient(px, py, 0, px, py, rr), fa = 0.34 * Math.min(1, l.f) * forcaBrilho;
         gr.addColorStop(0, "rgba(" + l.rgb + "," + fa + ")"); gr.addColorStop(1, "rgba(" + l.rgb + ",0)");
@@ -7954,7 +8044,7 @@ function tochasDoMundo() {
     return l;
 }
 function tochasLuzes(add) {
-    for (const t of tochasDoMundo()) if (t.x > cam.x - 200 && t.x < cam.x + VW / zoom + 200 && t.y > cam.y - 200 && t.y < cam.y + VH / zoom + 200) add(t.x, t.y - 26, 150, "255,160,70", 0.85, 1);
+    for (const t of tochasDoMundo()) if (luzVisivel(t.x, t.y, 200)) add(t.x, t.y - 26, 150, "255,160,70", 0.85, 1);
 }
 function desenharTocha(c, t) {
     const x = t.x, y = t.y;
@@ -7971,8 +8061,8 @@ function tochasNaLista(lista, c) {
     if (mapaAtual !== "Midgard_Aberto") return;
     const vw = VW / zoom, vh = VH / zoom;
     for (const t of tochasDoMundo()) {
-        if (t.x < cam.x - 40 || t.x > cam.x + vw + 40 || t.y < cam.y - 20 || t.y > cam.y + vh + 90) continue;
-        lista.push({ y: t.y, f: () => desenharTocha(c, t) });
+        if (!trasAtivo() && (t.x < cam.x - 40 || t.x > cam.x + vw + 40 || t.y < cam.y - 20 || t.y > cam.y + vh + 90)) continue;
+        lista.push({ x: t.x, y: t.y, f: () => desenharTocha(c, t) });
     }
 }
 
@@ -8253,7 +8343,7 @@ const XPE = f => Math.round((EXP_XP[mundoId] || 60) * f);
 
 function expedLuzes(add) {
     for (const p of poisAtuais()) {
-        if (p.x < cam.x - 200 || p.x > cam.x + VW / zoom + 200 || p.y < cam.y - 200 || p.y > cam.y + VH / zoom + 200) continue;
+        if (!luzVisivel(p.x, p.y, 200)) continue;
         const rgb = COR_POI[p.tipo] || "200,220,255";
         if (p.tipo === "altar") { if (p.cd > 0 && p.cd > 125) add(p.x, p.y - 26, 200, rgb, 1, 1); else if (pronto(p)) add(p.x, p.y - 22, 70, rgb, 0.4, 0.5); }
         else if (p.tipo === "ruina" && pronto(p)) add(p.x, p.y - 30, 100, rgb, 0.55, 0.4);
@@ -8598,13 +8688,13 @@ function desenharPOI(c, p) {
 function expedNaLista(lista, c) {
     const vw = VW / zoom, vh = VH / zoom;
     for (const p of poisAtuais()) {
-        if (p.x < cam.x - 80 || p.x > cam.x + vw + 80 || p.y < cam.y - 90 || p.y > cam.y + vh + 120) continue;
-        lista.push({ y: p.y, f: () => desenharPOI(c, p) });
+        if (!trasAtivo() && (p.x < cam.x - 80 || p.x > cam.x + vw + 80 || p.y < cam.y - 90 || p.y > cam.y + vh + 120)) continue;
+        lista.push({ x: p.x, y: p.y, f: () => desenharPOI(c, p) });
     }
     // marcas de inimigos especiais
     for (const e of inimigos) {
         if (e.dead || (!e.cacado && !e.espectro)) continue;
-        lista.push({ y: e.y + 30, f: () => {
+        lista.push({ x: e.x, y: e.y, f: () => {
             const pul = 0.5 + 0.5 * Math.sin(T * 0.006);
             c.strokeStyle = e.cacado ? "rgba(255,80,60," + (0.5 + 0.4 * pul) + ")" : "rgba(160,200,255," + (0.4 + 0.3 * pul) + ")"; c.lineWidth = 2;
             c.beginPath(); c.ellipse(e.x, e.y + e.r * 0.6, e.r + 8 + pul * 3, (e.r + 8) * 0.4, 0, 0, TAU); c.stroke();
@@ -8612,18 +8702,18 @@ function expedNaLista(lista, c) {
         } });
     }
     // checkpoints da corrida e bandeira da escolta
-    if (expEvt && expEvt.tipo === "corrida") lista.push({ y: 99999, f: () => {
-        expEvt.pts.forEach((q, i) => {
-            if (i < expEvt.i) return;
+    if (expEvt && expEvt.tipo === "corrida") expEvt.pts.forEach((q, i) => {
+        if (i < expEvt.i) return;
+        lista.push({ x: q.x, y: q.y + 400, f: () => {
             const at = i === expEvt.i;
             c.strokeStyle = at ? "rgba(120,255,190,0.95)" : "rgba(120,255,190,0.3)"; c.lineWidth = at ? 4 : 2;
             c.beginPath(); c.ellipse(q.x, q.y - 10, 30 + (at ? Math.sin(T * 0.01) * 3 : 0), 40, 0, 0, TAU); c.stroke();
             if (at) { c.fillStyle = "rgba(120,255,190,0.18)"; c.fill(); }
-        });
-    } });
+        } });
+    });
     if (expEvt && expEvt.tipo === "escolta") {
         const d = expEvt.m.destino;
-        lista.push({ y: d.y, f: () => { c.strokeStyle = "#4a3422"; c.lineWidth = 3; c.beginPath(); c.moveTo(d.x, d.y); c.lineTo(d.x, d.y - 52); c.stroke(); c.fillStyle = "#e0a93f"; c.beginPath(); c.moveTo(d.x, d.y - 52); c.lineTo(d.x + 26 + Math.sin(T * 0.006) * 3, d.y - 44); c.lineTo(d.x, d.y - 34); c.closePath(); c.fill(); feixe(c, d, "255,210,120", 260, 0.25); } });
+        lista.push({ x: d.x, y: d.y, f: () => { c.strokeStyle = "#4a3422"; c.lineWidth = 3; c.beginPath(); c.moveTo(d.x, d.y); c.lineTo(d.x, d.y - 52); c.stroke(); c.fillStyle = "#e0a93f"; c.beginPath(); c.moveTo(d.x, d.y - 52); c.lineTo(d.x + 26 + Math.sin(T * 0.006) * 3, d.y - 44); c.lineTo(d.x, d.y - 34); c.closePath(); c.fill(); feixe(c, d, "255,210,120", 260, 0.25); } });
     }
 }
 
@@ -8669,6 +8759,289 @@ function expedHUD(c) {
         if (m === "midgard" || m === "alfheim" || m === "jotunheim") QUESTS.push({ id: "x_" + m + "_aur", mundo: m, tipo: "mural", giver: MURAL[m], titulo: "Expedição: Sob a Aurora", desc: "Fique 30 segundos sob uma aurora, num céu aberto à noite. Criaturas raras despertam.", chave: "exp:aurora", n: 3, xp: Math.round(EXP_XP[m] * 0.9) });
     }
 })();
+</script>
+<script>
+/* camtras.js: câmera traseira 2.5D (modo opcional). Céu com horizonte, chão em perspectiva e personagens em escala por profundidade */
+
+const TRAS = { back: 240, foc: 336, hc: 206, hor: 0.30, fmax: 2600 };
+let camYaw = -Math.PI / 2;
+P.yaw = -Math.PI / 2;
+let _ov = null, _ovg = null, _tPuloMapa = null;
+
+function trasAtivo() { return CONFIG.camTras === true && mapaAtual === "Midgard_Aberto" && estado !== "menu"; }
+
+function trasLigar(v) {
+    CONFIG.camTras = v; salvarConfig(); atualizarConfigUI();
+    if (v) { P.yaw = typeof P.mvang === "number" ? P.mvang : -Math.PI / 2; camYaw = P.yaw; }
+    transicaoDeCamera();
+    aviso(v ? "Câmera traseira: A/D giram, W/S andam (V volta à clássica)" : "Câmera clássica", "#bfe0ff", 3.5);
+}
+
+// --- projeção: ponto do mundo (x, y) → tela ---
+function trasProj(x, y) {
+    const fx = Math.cos(camYaw), fy = Math.sin(camYaw), foc = TRAS.foc * (CONFIG.zoomUsr || 1);
+    const cx = P.x - fx * TRAS.back, cy = P.y - fy * TRAS.back, dx = x - cx, dy = y - cy;
+    const f = dx * fx + dy * fy;
+    if (f < 40) return null;
+    const l = -dx * fy + dy * fx, s = foc / f;
+    return { sx: VW / 2 + l * s, sy: VH * TRAS.hor + TRAS.hc * s, s, f };
+}
+
+// ângulo do mundo → ângulo na tela (a frente da câmera é "para cima")
+function trasAng(a) { return a - camYaw - Math.PI / 2; }
+
+// --- controles ---
+function trasGirar(dt) {
+    if (P.cataT > 0) return;
+    const r = vetorEntradaBruto();
+    P.yaw += r.x * 2.3 * dt;
+    if (vetorEntrada().l <= 0.1) P.mvang = P.yaw;
+}
+function trasMira() {
+    let melhor = null, bs = 1e9;
+    for (const e of inimigos) {
+        if (e.dead || e.proxy) continue;
+        const dx = e.x - P.x, dy = e.y - P.y, d = Math.hypot(dx, dy) - e.r;
+        if (d > 340) continue;
+        const da = Math.abs(angDiff(Math.atan2(dy, dx), P.yaw));
+        if (da > 0.8) continue;
+        const sc = d + da * 170;
+        if (sc < bs) { bs = sc; melhor = e; }
+    }
+    return melhor ? Math.atan2(melhor.y - P.y, melhor.x - P.x) : P.yaw;
+}
+function atualizarCameraTras(dt) {
+    if (dt === undefined) camYaw = P.yaw;
+    else camYaw += angDiff(P.yaw, camYaw) * (1 - Math.exp(-dt * 6));
+    zoom = 1;
+    cam.x = clamp(P.x - VW / 2, 0, Math.max(0, mapaLargura() - VW)); cam.y = clamp(P.y - VH / 2, 0, Math.max(0, mapaAltura() - VH));
+}
+
+// --- céu e montanhas (o horizonte gira com a câmera) ---
+const CEU_PAL = {
+    gelo: { topo: "#35506e", meio: "#8fa6ba", base: "#d4dde4", m: ["#4a5d6e", "#3a4c5c", "#2c3a48"], neblina: "196,208,216" },
+    luz: { topo: "#2f6a88", meio: "#8fd0c4", base: "#eef0c8", m: ["#4f8e86", "#3a7468", "#2a5a4e"], neblina: "220,232,190" },
+    sombra: { topo: "#180d26", meio: "#4a2a52", base: "#b05a46", m: ["#3a2244", "#2a1832", "#1c0f24"], neblina: "170,90,70" },
+    campo: { topo: "#2a5a82", meio: "#86b4c8", base: "#dde4c8", m: ["#4a7a64", "#386450", "#2a4e3e"], neblina: "208,220,196" }
+};
+function trasCeu(c) {
+    const W = VW, H = VH, hor = H * TRAS.hor, foc = TRAS.foc * (CONFIG.zoomUsr || 1), pal = CEU_PAL[defMundo.bioma] || CEU_PAL.gelo;
+    const g = c.createLinearGradient(0, 0, 0, hor + 6);
+    g.addColorStop(0, pal.topo); g.addColorStop(0.62, pal.meio); g.addColorStop(1, pal.base);
+    c.fillStyle = g; c.fillRect(0, 0, W, hor + 6);
+    const noite = escuridao();
+    if (noite > 0.25) {   // estrelas
+        c.fillStyle = "#fff";
+        for (let i = 0; i < 110; i++) {
+            const ang = (i * 2.39996) % TAU, el = ((i * 0.6180339) % 1) * 0.95 * hor;
+            let d = angDiff(ang, camYaw); if (Math.abs(d) > 1.1) continue;
+            c.globalAlpha = noite * (0.4 + 0.5 * Math.sin(T * 0.002 + i));
+            c.fillRect(W / 2 + Math.tan(d) * foc, el, 1.6, 1.6);
+        }
+        c.globalAlpha = 1;
+    }
+    // sol de dia, lua de noite, num ponto fixo do céu
+    const h = horaJogo(), diaP = (h - 6) / 12, luaP = ((h + 6) % 24) / 12 - 0.0;
+    const astro = (az, p, cor, raio) => {
+        const d = angDiff(az, camYaw);
+        if (Math.abs(d) > 1.1 || p < 0 || p > 1) return;
+        const x = W / 2 + Math.tan(d) * foc, y = hor - Math.sin(p * Math.PI) * hor * 0.82 - 6;
+        const gr = c.createRadialGradient(x, y, 2, x, y, raio * 4); gr.addColorStop(0, cor + "aa"); gr.addColorStop(1, cor + "00");
+        c.fillStyle = gr; c.fillRect(x - raio * 4, y - raio * 4, raio * 8, raio * 8);
+        c.fillStyle = cor; c.beginPath(); c.arc(x, y, raio, 0, TAU); c.fill();
+    };
+    astro(0.8, diaP, "#fff0c0", 15);
+    astro(0.8 + 2.4, ((h + 12) % 24 - 6) / 12, "#e8eeff", 11);
+    // montanhas em três camadas, periódicas no ângulo para fechar o círculo
+    for (let l = 0; l < 3; l++) {
+        c.beginPath(); c.moveTo(0, hor + 2);
+        for (let x = 0; x <= W + 10; x += 10) {
+            const a = camYaw + Math.atan((x - W / 2) / foc), ph = l * 1.7;
+            let k = Math.sin(2 * a + ph) * 0.42 + Math.sin(5 * a + ph * 2) * 0.26 + Math.sin(11 * a + ph) * 0.13 + Math.sin(23 * a + ph * 3) * 0.06;
+            c.lineTo(x, hor - (16 + (2 - l) * 4 + (k + 0.6) * (46 - l * 9)));
+        }
+        c.lineTo(W + 10, hor + 2); c.closePath(); c.fillStyle = pal.m[l]; c.fill();
+    }
+}
+
+// --- chão em perspectiva (faixas horizontais com transformação afim por linha) ---
+function trasFaixas(c, src, ke, ox, oy, fmax, passo, sobrepor) {
+    const W = VW, H = VH, hor = H * TRAS.hor, foc = TRAS.foc * (CONFIG.zoomUsr || 1), hc = TRAS.hc;
+    const fx = Math.cos(camYaw), fy = Math.sin(camYaw), rx = -fy, ry = fx;
+    const cx0 = P.x - fx * TRAS.back, cy0 = P.y - fy * TRAS.back;
+    const y0 = Math.ceil(hor + hc * foc / fmax);
+    for (let y = H; y > y0; y -= passo) {
+        const yc = y - passo * 0.5, f = hc * foc / (yc - hor), s = foc / f, k = hc * foc / (f * f);
+        const wcx = cx0 + fx * f - ox, wcy = cy0 + fy * f - oy;
+        const a = s * rx / ke, cc = s * ry / ke, b = -k * fx / ke, d = -k * fy / ke;
+        c.save();
+        c.beginPath(); c.rect(0, y - passo, W, passo + (sobrepor ? 0.6 : 0)); c.clip();
+        c.transform(a, b, cc, d, W / 2 - s * (wcx * rx + wcy * ry), yc + k * (wcx * fx + wcy * fy));
+        c.drawImage(src, 0, 0);
+        c.restore();
+    }
+}
+
+function trasOverlay() {
+    const precisa = zonas.length || aneisD.length || parts.some(q => q.anel) || (mundoId === "vanaheim" && typeof PARKOUR !== "undefined" && Math.hypot(P.x - (PARKOUR.rect.x + PARKOUR.rect.w / 2), P.y - (PARKOUR.rect.y + PARKOUR.rect.h / 2)) < 1900);
+    if (!precisa) return null;
+    if (!_ov) { _ov = document.createElement("canvas"); _ov.width = _ov.height = 700; _ovg = _ov.getContext("2d"); }
+    const g = _ovg, ox = P.x - 700, oy = P.y - 700;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, 700, 700);
+    g.setTransform(0.5, 0, 0, 0.5, -ox * 0.5, -oy * 0.5);
+    const sc = { x: cam.x, y: cam.y, z: zoom };
+    cam.x = ox; cam.y = oy; zoom = 0.68;
+    try {
+        desenharParkour(g); desenharZonas(g);
+        for (const q of parts) if (q.anel) { const a = Math.max(0, q.life / q.lmax); g.strokeStyle = q.col; g.globalAlpha = a * 0.8; g.lineWidth = 3; g.beginPath(); g.arc(q.x, q.y, q.r, 0, TAU); g.stroke(); g.globalAlpha = 1; }
+        for (const q of aneisD) {
+            g.save(); g.translate(q.x, q.y); g.rotate(q.rot);
+            g.strokeStyle = "rgba(240,194,77,0.3)"; g.lineWidth = 9; g.beginPath(); g.arc(0, 0, q.r, 0, TAU); g.stroke();
+            g.strokeStyle = "#f0c24d"; g.lineWidth = 3.5; g.beginPath(); g.arc(0, 0, q.r, 0, TAU); g.stroke(); g.restore();
+        }
+    } finally { cam.x = sc.x; cam.y = sc.y; zoom = sc.z; }
+    return { ox, oy };
+}
+
+function trasChao(c) {
+    const H = VH, hor = H * TRAS.hor;
+    c.fillStyle = "#141b26"; c.fillRect(0, hor, VW, H - hor);
+    c.imageSmoothingEnabled = true;
+    try { trasFaixas(c, chaoMundo, chaoMundo.esc || ESC_CHAO, 0, 0, TRAS.fmax, 2, true); } catch (e) { /* ainda sem chão */ }
+    const ov = trasOverlay();
+    if (ov) trasFaixas(c, _ov, 0.5, ov.ox, ov.oy, 900, 2, false);
+    // névoa do horizonte
+    const pal = CEU_PAL[defMundo.bioma] || CEU_PAL.gelo, fim = hor + TRAS.hc * TRAS.foc * (CONFIG.zoomUsr || 1) / 1250;
+    const g = c.createLinearGradient(0, hor, 0, fim);
+    g.addColorStop(0, "rgba(" + pal.neblina + ",1)"); g.addColorStop(0.35, "rgba(" + pal.neblina + ",0.55)"); g.addColorStop(1, "rgba(" + pal.neblina + ",0)");
+    c.fillStyle = g; c.fillRect(0, hor - 1, VW, fim - hor + 1);
+}
+
+// --- objetos e personagens: desenhos em pé, em escala por profundidade ---
+function trasBill(c, x, y, fn, p, extraAl) {
+    p = p || trasProj(x, y);
+    if (!p) return;
+    const fa = p.f > 1100 ? 1 - (p.f - 1100) / 1300 : 1, fn1 = p.f < 120 ? (p.f - 40) / 80 : 1, al = Math.min(fa, fn1) * (extraAl === undefined ? 1 : extraAl);
+    if (al <= 0.02) return;
+    c.save();
+    if (al < 1) c.globalAlpha = al;
+    c.translate(p.sx, p.sy); c.scale(p.s, p.s); c.translate(-x, -y);
+    try { fn(); } finally { c.restore(); }
+}
+
+function desenharHeroiCostas(c, x, y) {
+    const fl = P.hitFlash > 0, mov = P.movendo ? Math.sin(P.andou * 0.2) : 0, sway = Math.sin(T * 0.005) * 1.6;
+    desenharSupressao(c, x, y);
+    c.save();
+    c.fillStyle = "rgba(0,0,0,0.38)"; c.beginPath(); c.ellipse(x, y + 2, 17, 6.5, 0, 0, TAU); c.fill();
+    desenharAuraJogador(c, x, y);
+    if (P.shield > 0) { c.strokeStyle = "rgba(102,252,241,0.85)"; c.lineWidth = 3; c.beginPath(); c.ellipse(x, y - 22, 26, 30, 0, 0, TAU); c.stroke(); c.fillStyle = "rgba(102,252,241,0.12)"; c.fill(); }
+    if (P.inv > 0 && Math.floor(T / 60) % 2 === 0) c.globalAlpha = 0.45;
+    if (P.dash > 0) c.globalAlpha = 0.6;
+    const co = (n, b) => fl ? "#fff" : n;
+    // botas
+    c.fillStyle = co("#2a1a10"); c.strokeStyle = "rgba(8,10,14,0.85)"; c.lineWidth = 1.3;
+    [[-6, mov], [6, -mov]].forEach(q => { c.beginPath(); c.roundRect ? c.roundRect(x + q[0] - 4.5, y - 11 - q[1] * 2.4, 9, 12, 3) : c.rect(x + q[0] - 4.5, y - 11 - q[1] * 2.4, 9, 12); c.fill(); c.stroke(); });
+    // capa vermelha que cai das costas
+    const gc = c.createLinearGradient(x, y - 40, x, y - 4); gc.addColorStop(0, co("#c0392b")); gc.addColorStop(1, co("#5e0f0b"));
+    c.fillStyle = gc; c.strokeStyle = "rgba(30,6,6,0.85)"; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(x - 11, y - 40); c.quadraticCurveTo(x - 17 + sway, y - 20, x - 15 + sway * 1.4, y - 5); c.lineTo(x + 15 + sway * 1.4, y - 5); c.quadraticCurveTo(x + 17 + sway, y - 20, x + 11, y - 40); c.closePath(); c.fill(); c.stroke();
+    c.strokeStyle = "rgba(255,140,120,0.3)"; c.lineWidth = 1; c.beginPath(); c.moveTo(x, y - 38); c.lineTo(x + sway * 1.2, y - 7); c.stroke();
+    // escudo no braço esquerdo
+    c.fillStyle = co("#7a4a24"); c.strokeStyle = co("#b9c3cc"); c.lineWidth = 2;
+    c.beginPath(); c.arc(x - 16, y - 24, 10, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = co("#d8e0e6"); c.beginPath(); c.arc(x - 16, y - 24, 2.6, 0, TAU); c.fill();
+    // ombreiras
+    c.fillStyle = co("#9aa7b2"); c.strokeStyle = "rgba(10,14,18,0.85)"; c.lineWidth = 1.4;
+    c.beginPath(); c.ellipse(x - 11, y - 38, 6.5, 4.6, -0.3, 0, TAU); c.fill(); c.stroke();
+    c.beginPath(); c.ellipse(x + 11, y - 38, 6.5, 4.6, 0.3, 0, TAU); c.fill(); c.stroke();
+    // arma na mão direita, apontando para a frente
+    c.save(); c.translate(x + 15, y - 28); c.rotate(P.swing > 0 ? trasAng(P.face) : -Math.PI / 2 + 0.15); desenharEmpunhada(c, armaEfetiva(), 0); c.restore();
+    // elmo visto de trás, com chifres
+    c.strokeStyle = co("#f1e7cf"); c.lineWidth = 3.4; c.lineCap = "round";
+    c.beginPath(); c.moveTo(x - 8, y - 56); c.quadraticCurveTo(x - 17, y - 58, x - 15, y - 70); c.stroke();
+    c.beginPath(); c.moveTo(x + 8, y - 56); c.quadraticCurveTo(x + 17, y - 58, x + 15, y - 70); c.stroke();
+    const gh = c.createRadialGradient(x - 2, y - 58, 1, x, y - 54, 11); gh.addColorStop(0, co("#e6eef4")); gh.addColorStop(1, co("#7d8a96"));
+    c.fillStyle = gh; c.strokeStyle = "rgba(10,14,18,0.85)"; c.lineWidth = 1.6;
+    c.beginPath(); c.arc(x, y - 54, 10, 0, TAU); c.fill(); c.stroke();
+    c.strokeStyle = "rgba(40,50,60,0.75)"; c.lineWidth = 1.4; c.beginPath(); c.moveTo(x, y - 64); c.lineTo(x, y - 46); c.stroke();
+    c.fillStyle = co("#d98c3c"); c.beginPath(); c.ellipse(x, y - 44, 6, 3.2, 0, 0, Math.PI); c.fill();   // ponta da barba
+    c.restore();
+    desenharOlhoJogador(c, x, y - 20);
+    desenharCorvos(c, x, y);
+    desenharValhalla(c);
+}
+
+function trasDesenhaInimigo(c, e) {
+    const a0 = e.ang; e.ang = trasAng(e.ang);
+    try { desenharInimigo(c, e); } finally { e.ang = a0; }
+}
+
+// --- efeitos projetados: partículas, projéteis, raios, números de dano e o martelo ---
+function trasEfeitos(c) {
+    const itens = [];
+    for (const q of parts) if (!q.anel) { const p = trasProj(q.x, q.y); if (p) itens.push({ f: p.f, d: () => { c.fillStyle = q.col; c.globalAlpha = Math.max(0, q.life / q.max); const z = q.size * p.s; c.fillRect(p.sx - z / 2, p.sy - 14 * p.s - z / 2, z, z); c.globalAlpha = 1; } }); }
+    for (const q of proj) { const p = trasProj(q.x, q.y); if (p) itens.push({ f: p.f - 5, d: () => trasBill(c, q.x, q.y, () => desenharProj(c, q), p) }); }
+    if (P.mj) { const q = P.mj, p = trasProj(q.x, q.y); if (p) itens.push({ f: p.f - 5, d: () => trasBill(c, q.x, q.y, () => desenharMjolnirVoando(c), p) }); }
+    for (const b of raios) {
+        const p1 = trasProj(b.x1, b.y1), p2 = trasProj(b.x2, b.y2);
+        if (!p1 && !p2) continue;
+        itens.push({ f: (p2 || p1).f - 8, d: () => {
+            const A = p1 || p2, B = p2 || p1, seg = b.grande ? 12 : 6, esp = (b.grande ? 12 : 9) * B.s, fa = b.life / (b.grande ? 0.4 : 0.28);
+            const pts = [[A.sx, A.sy - 30 * A.s]];
+            for (let i = 1; i < seg; i++) { const k = i / seg; pts.push([A.sx + (B.sx - A.sx) * k + rand(-esp, esp), A.sy - 30 * A.s + (B.sy - 30 * B.s - A.sy + 30 * A.s) * k + rand(-esp, esp)]); }
+            pts.push([B.sx, B.sy - 8 * B.s]);
+            c.lineJoin = c.lineCap = "round";
+            const tracar = (cor, lw) => { c.strokeStyle = cor; c.lineWidth = lw; c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.stroke(); };
+            if (b.grande) tracar("rgba(224,169,63," + (0.35 * fa) + ")", 12 * B.s);
+            tracar("rgba(255,236,170," + fa + ")", (b.grande ? 4 : 3) * B.s);
+            if (b.grande) tracar("rgba(255,255,255," + fa + ")", 1.5 * B.s);
+        } });
+    }
+    for (const t of textos) { const p = trasProj(t.x, t.y); if (p) itens.push({ f: p.f - 20, d: () => { c.globalAlpha = Math.min(1, t.life * 2); c.fillStyle = t.col; c.font = "700 " + Math.round(15 * Math.min(2, p.s)) + "px 'Alegreya Sans', sans-serif"; c.textAlign = "center"; c.fillText(t.txt, p.sx, p.sy - 40 * p.s); c.globalAlpha = 1; } }); }
+    return itens;
+}
+
+function trasDesenhaItem(c, pk) {
+    const p = trasProj(pk.x, pk.y);
+    if (p) trasBill(c, pk.x, pk.y, () => desenharPickup(c, pk), p);
+}
+
+function desenharCenaTras(c) {
+    const W = VW, H = VH;
+    c.clearRect(0, 0, W, H);
+    c.save();
+    const tr = shake * intensidadeTremor();
+    if (tr > 0.3) c.translate((Math.random() - 0.5) * tr, (Math.random() - 0.5) * tr);
+    trasCeu(c);
+    trasChao(c);
+    // lista de tudo que fica em pé, ordenada do mais longe para o mais perto
+    const lista = [];
+    const add = (x, y, fn, bias) => { const p = trasProj(x, y); if (!p || p.f > TRAS.fmax - 100) return; const marg = 220 * p.s; if (p.sx < -marg || p.sx > W + marg) return; lista.push({ f: p.f + (bias || 0), x, y, fn, p }); };
+    for (const o of objetosMundoAberto) add(o.x, o.y, () => desenharObjeto(c, o));
+    for (const n of npcs) add(n.x, n.y, () => desenharNpc(c, n));
+    for (const k of cristais) if (k.vivo) add(k.x, k.y, () => desenharCristal(c, k));
+    if (odinVisivel()) add(odin.x, odin.y, () => desenharOdin(c));
+    for (const e of inimigos) add(e.x, e.y, () => trasDesenhaInimigo(c, e), e.boss ? -20 : 0);
+    for (const pk of pickups) add(pk.x, pk.y, () => desenharPickup(c, pk));
+    const extra = [];
+    tochasNaLista(extra, c); expedNaLista(extra, c);
+    for (const q of extra) if (q.x !== undefined) add(q.x, q.y, q.f);
+    if (typeof mpDesenharRemotos === "function") { /* jogadores remotos: ainda só na câmera clássica */ }
+    // o herói
+    lista.push({ f: TRAS.back, x: P.x, y: P.y, p: trasProj(P.x, P.y), fn: () => desenharHeroiCostas(c, P.x, P.y) });
+    for (const q of trasEfeitos(c)) lista.push({ f: q.f, direto: q.d });
+    lista.sort((a, b) => b.f - a.f);
+    const hp = trasProj(P.x, P.y);
+    for (const d of lista) {
+        if (d.direto) { d.direto(); continue; }
+        if (!d.p) continue;
+        // o que estiver entre a câmera e o herói fica translúcido
+        const ocl = hp && d.f < TRAS.back - 6 && d.fn && Math.abs(d.p.sx - hp.sx) < 95 * d.p.s + 28 && d.p.sy > hp.sy - 70;
+        trasBill(c, d.x, d.y, d.fn, d.p, ocl ? 0.28 : 1);
+    }
+    c.restore();
+}
 </script>
 <script>
 /* jogo.js: menus, save automático, loop principal, entrada, painéis (inventário, missões, bênçãos) e HUD */
