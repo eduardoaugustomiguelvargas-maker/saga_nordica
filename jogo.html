@@ -1586,9 +1586,11 @@ const neve = Array.from({ length: 150 }, () => ({ x: Math.random() * VW, y: Math
 
 // Cada mundo é um espaço separado. Em cada um há portais para o próximo (e um de volta).
 // "mundoReq" é o mundo cujas missões contam; "req" é quantas precisam estar concluídas.
-// Midgard (o primeiro mundo) tem dois portais: Nornas (35 missões) e Alfheim (100 missões).
+// Midgard (o primeiro mundo) tem dois portais: Nornas (15 missões) e Alfheim (30 missões).
 function mundoDeMateriais() { return ORDEM_MUNDOS.indexOf(mundoId) >= 2; }
-const MISSOES_NORNAS = 35, MISSOES_MUNDO = 100;
+const MISSOES_NORNAS = 15, MISSOES_MUNDO = 30;
+// Dificuldade crescente: cada mundo pede mais abates por missão que o anterior (Midgard = 1).
+const DIF_MUNDO = { midgard: 1, alfheim: 1.5, svartalfheim: 2.1, vanaheim: 2.8, jotunheim: 3.5, niflheim: 4.3, muspelheim: 5.2, helheim: 6.2, asgard: 7.5 };
 const NOMES_TERRA = { midgard: "Midgard", nornas: "Domínio das Nornas", alfheim: "Alfheim", svartalfheim: "Svartalfheim", vanaheim: "Vanaheim", jotunheim: "Jötunheim", mimir: "Reino de Mímir", odin: "Provas de Odin" };
 const PORTAIS = [
     { id: "p_nornas", terra: "midgard", nome: "Portal das Nornas", x: 1160, y: 2720, dest: "nornas", mundoReq: "midgard", req: MISSOES_NORNAS, cor: "#66fcf1" },
@@ -1653,7 +1655,7 @@ const SAIDA_YMIR = { x: 4100, y: 750 };
 
 function objetosDoMapa() { return mapaAtual === "Midgard_Aberto" ? objetosMundoAberto : mapaAtual === "Interior_Nornas" ? objetosNornas : objetosCaverna; }
 function npcsDoMapa() { return mapaAtual === "Midgard_Aberto" ? npcs : mapaAtual === "Interior_Nornas" ? npcsNornas : []; }
-function chaoDoMapa() { return mapaAtual === "Interior_Nornas" ? chaoNornas : chefeAtual === "eik" || chefeAtual === "gull" ? chaoCavernaLuz : chefeAtual === "svart" ? chaoCavernaFogo : chaoCaverna; }
+function chaoDoMapa() { return mapaAtual === "Interior_Nornas" ? chaoNornas : chefeAtual === "ondas" && SO ? (SO.cfg.tema === "luz" ? chaoCavernaLuz : SO.cfg.tema === "fogo" ? chaoCavernaFogo : chaoCaverna) : chefeAtual === "eik" || chefeAtual === "gull" ? chaoCavernaLuz : chefeAtual === "svart" ? chaoCavernaFogo : chaoCaverna; }
 function interior() { return mapaAtual !== "Midgard_Aberto"; }
 function mapaLargura() { return mapaAtual === "Midgard_Aberto" ? MUNDO_W : mapaAtual === "Interior_Nornas" ? NORNAS_W : VW; }
 function mapaAltura() { return mapaAtual === "Midgard_Aberto" ? MUNDO_H : mapaAtual === "Interior_Nornas" ? NORNAS_H : VH; }
@@ -1736,7 +1738,8 @@ function gerarAlfheim() {
     objs.push({ type: "cave", id: "eik", x: 3320, y: 500, w: 150, h: 120, rgb: "255,225,140" }); fixar(3320, 500, 150);
     const npcs = [
         { id: "freyr", nome: "Freyr, Senhor de Alfheim", x: V.x + 60, y: V.y - 55, cor: "#2f7a4a", barba: "#e6c97a" },
-        { id: "mural_alfheim", nome: "Mural de Missões", x: V.x - 70, y: V.y - 60, cor: "#6b4a2e", barba: null }
+        { id: "mural_alfheim", nome: "Mural de Missões", x: V.x - 70, y: V.y - 60, cor: "#6b4a2e", barba: null },
+        { id: "ljos", nome: "Aelindor, Tecelão da Luz", x: V.x + 240 + 92, y: V.y - 170 + 38, cor: "#f6f0d8", barba: null }
     ];
     npcs.forEach(n => fixar(n.x, n.y, 50));
     const cristais = [[900, 600], [1500, 1100], [2500, 500], [3500, 900], [700, 1700], [2800, 1900], [3600, 2400], [2200, 2500], [1600, 1900], [400, 1000]]
@@ -1861,6 +1864,7 @@ function usarMundo(id) {
     REGIOES = defMundo.regioes; MUNDO_W = defMundo.w; MUNDO_H = defMundo.h; VILA = defMundo.vila; SPAWN = defMundo.spawn;
     objetosMundoAberto = d.objs; npcs = d.npcs; cristais = d.cristais; chaoMundo = d.chao;
     if (typeof prepararOdin === "function") prepararOdin();
+    if (typeof colocarPortalOculto === "function") colocarPortalOculto();
 }
 
 function gerarInteriores() {
@@ -1895,6 +1899,7 @@ function construirColisores(lista, extras) {
     const cs = [];
     for (const o of lista) {
         if (o.type === "cogu") cs.push({ k: "c", x: o.x, y: o.y - 4, r: 10 });
+        else if (o.type === "portal_oculto") cs.push({ k: "c", x: o.x, y: o.y - 6, r: 30 });
         else if (o.type === "tree") cs.push({ k: "c", x: o.x, y: o.y - 4, r: 9 });
         else if (o.type === "stone") cs.push({ k: "c", x: o.x, y: o.y - o.h * 0.3, r: o.w * 0.42 });
         else if (o.type === "runestone") cs.push({ k: "c", x: o.x, y: o.y - 6, r: 11 });
@@ -2375,14 +2380,27 @@ function desenharPinheiro(c, o) {
     const sw = wi * h * 0.05 + osc;
     const paleta = [["#1f5550", "#2d7168", "#143a37"], ["#1c4b49", "#296860", "#12342f"], ["#25594f", "#34796d", "#17413a"]][o.v % 3];
     elipse(c, x + 8 + sw * 0.5, y, w * 0.44, 7, "rgba(8,20,30,0.32)");
-    // tronco levemente curvado
-    c.fillStyle = "#4a3626"; c.strokeStyle = "#0b1f22"; c.lineWidth = 1.5;
-    c.beginPath(); c.moveTo(x - 4, y); c.quadraticCurveTo(x - 3 + sw * 0.1, y - 9, x - 3 + sw * 0.25, y - 18); c.lineTo(x + 3 + sw * 0.25, y - 18); c.quadraticCurveTo(x + 3 + sw * 0.1, y - 9, x + 4, y); c.closePath(); c.fill(); c.stroke();
-    c.fillStyle = "rgba(255,230,200,0.12)"; c.fillRect(x - 3, y - 14, 2, 14);
-    const N = 4;
+    // tronco visível sob as copas, com casca, e raízes que saem do chão e afundam na neve
+    const th = Math.max(26, h * 0.42), tw = 4.6 + h * 0.018;
+    const gtr = c.createLinearGradient(x - tw, 0, x + tw, 0); gtr.addColorStop(0, "#6a4d36"); gtr.addColorStop(0.55, "#4a3626"); gtr.addColorStop(1, "#2b1d14");
+    c.fillStyle = gtr; c.strokeStyle = "#0b1f22"; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(x - tw - 3, y + 1); c.quadraticCurveTo(x - tw, y - 6, x - tw + 1 + sw * 0.1, y - 14); c.quadraticCurveTo(x - tw + 1 + sw * 0.2, y - th * 0.6, x - tw * 0.8 + sw * 0.3, y - th);
+    c.lineTo(x + tw * 0.8 + sw * 0.3, y - th); c.quadraticCurveTo(x + tw - 1 + sw * 0.2, y - th * 0.6, x + tw - 1 + sw * 0.1, y - 14); c.quadraticCurveTo(x + tw, y - 6, x + tw + 3, y + 1); c.closePath(); c.fill(); c.stroke();
+    c.strokeStyle = "rgba(20,12,6,0.45)"; c.lineWidth = 1;
+    for (let k = -1; k <= 1; k++) { c.beginPath(); c.moveTo(x + k * tw * 0.45, y - 3); c.lineTo(x + k * tw * 0.4 + sw * 0.15, y - th * 0.8); c.stroke(); }
+    c.fillStyle = "rgba(255,230,200,0.14)"; c.fillRect(x - tw + 1.5, y - th * 0.7, 1.8, th * 0.7);
+    // raízes grossas abertas em leque, com pontas que somem sob a neve
+    c.fillStyle = "#3d2b1d"; c.strokeStyle = "#0b1f22"; c.lineWidth = 1.2;
+    for (const [dx, dy, lx, ly] of [[-tw * 0.7, -5, -tw - 15, 3], [tw * 0.7, -5, tw + 16, 4], [-tw * 0.2, -3, -tw - 4, 7], [tw * 0.3, -3, tw + 6, 8]]) {
+        c.beginPath(); c.moveTo(x + dx - 2.2, y + dy); c.quadraticCurveTo(x + dx + (lx - dx) * 0.5, y + dy + 1, x + lx, y + ly); c.lineTo(x + lx - Math.sign(lx) * 1, y + ly + 3); c.quadraticCurveTo(x + dx + (lx - dx) * 0.4, y + dy + 6, x + dx + 2.2, y + dy + 1); c.closePath(); c.fill(); c.stroke();
+    }
+    // neve e terra cobrindo a base: as raízes ficam afundadas
+    elipse(c, x - tw - 6, y + 4, w * 0.12, 3.6, "rgba(236,246,252,0.95)"); elipse(c, x + tw + 7, y + 5, w * 0.13, 3.8, "rgba(226,240,248,0.95)");
+    elipse(c, x, y + 4, tw + 9, 4.2, "rgba(238,247,252,0.92)"); elipse(c, x + 2, y + 6, tw + 3, 2.6, "rgba(206,226,240,0.9)");
+    const N = h > 112 ? 5 : 4;
     for (let i = 0; i < N; i++) {
         const f = 1 - i / (N + 0.5), off = sw * f * f * 1.2 + Math.sin(T * 0.007 + x + i * 1.7) * 0.5 * f;
-        const ap = y - h + i * h * 0.2, bs = ap + h * 0.42, hw = w * (0.26 + i * 0.15);
+        const ap = y - h + i * h * (N === 5 ? 0.14 : 0.17), bs = ap + h * (N === 5 ? 0.38 : 0.38), hw = w * (0.26 + i * 0.15);
         const ax = x + off * 1.35, bx = x + off * 0.65;
         // contorno irregular (pontas de galhos)
         const dir = [];
@@ -2395,7 +2413,8 @@ function desenharPinheiro(c, o) {
         dir.forEach(p => c.lineTo(p[0], p[1]));
         for (let k = esq.length - 1; k >= 0; k--) c.lineTo(esq[k][0], esq[k][1]);
         c.closePath();
-        c.fillStyle = paleta[i % 2]; c.fill(); c.lineWidth = 1.8; c.strokeStyle = "#0b1f22"; c.stroke();
+        const gr = c.createLinearGradient(ax - hw, ap, bx + hw, bs); gr.addColorStop(0, paleta[1]); gr.addColorStop(0.55, paleta[0]); gr.addColorStop(1, paleta[2]);
+        c.fillStyle = gr; c.fill(); c.lineWidth = 1.8; c.strokeStyle = "#0b1f22"; c.stroke();
         // luz à esquerda e sombra à direita
         c.fillStyle = "rgba(190,240,225,0.16)"; c.beginPath(); c.moveTo(ax, ap); c.lineTo(esq[esq.length - 1][0], esq[esq.length - 1][1]); c.lineTo(bx, bs - 2); c.closePath(); c.fill();
         c.fillStyle = "rgba(2,14,20,0.30)"; c.beginPath(); c.moveTo(ax, ap); c.lineTo(dir[dir.length - 1][0], dir[dir.length - 1][1]); c.lineTo(bx, bs - 2); c.closePath(); c.fill();
@@ -2409,12 +2428,26 @@ function desenharPinheiro(c, o) {
         c.lineTo(bx - (bx + hw - ax) * 0.5, ap + (bs - ap) * 0.36);
         c.lineTo(ax - (bx + hw - ax) * 0.24, ap + (bs - ap) * 0.2);
         c.closePath(); c.fill();
+        // tufos de neve pendurados nas pontas dos galhos e brilho no alto
+        c.fillStyle = "rgba(246,251,255,0.92)";
+        for (let k = 1; k < dir.length; k += 2) { const p1 = dir[k], p2 = esq[k]; c.beginPath(); c.ellipse(p1[0] - 1, p1[1] + 1, 3.2 + i * 0.4, 1.9, 0.2, 0, TAU); c.fill(); c.beginPath(); c.ellipse(p2[0] + 1, p2[1] + 1, 3 + i * 0.4, 1.8, -0.2, 0, TAU); c.fill(); }
+        c.fillStyle = "rgba(255,255,255,0.35)"; c.beginPath(); c.ellipse(ax - hw * 0.12, ap + (bs - ap) * 0.2, hw * 0.16, 2, -0.5, 0, TAU); c.fill();
     }
+    // topo com uma pontinha de neve
+    { const fT = 1 - 0 / (N + 0.5), offT = sw * fT * fT * 1.2; elipse(c, x + offT * 1.35, y - h + 1, 3.4, 2.4, "rgba(246,251,255,0.95)"); }
     // neve solta levada pelo vento nas rajadas fortes
     if (wi > 1.05) { c.fillStyle = "rgba(240,248,255," + Math.min(0.7, (wi - 1.05)) + ")"; for (let k = 0; k < 3; k++) { const t = ((T * 0.002 + k * 0.33 + x) % 1); c.fillRect(x + sw + t * 30, y - h * (0.8 - 0.4 * k / 3) + Math.sin(t * 9) * 3, 2, 2); } }
 }
 
 function desenharObjeto(c, o) {
+    if (o.type === "tree") {
+        const cobre = P.y < o.y + 4 && P.y > o.y - o.h * 0.95 && Math.abs(P.x - o.x) < o.h * 0.34;
+        o.fa = (o.fa === undefined ? 1 : o.fa) + ((cobre ? 0.4 : 1) - (o.fa === undefined ? 1 : o.fa)) * 0.18;
+        if (o.fa < 0.995) { c.save(); c.globalAlpha *= o.fa; desenharObjetoBase(c, o); c.restore(); return; }
+    }
+    desenharObjetoBase(c, o);
+}
+function desenharObjetoBase(c, o) {
     const x = o.x, y = o.y;
     const luz = (defMundo.bioma === "luz" || defMundo.bioma === "campo") && mapaAtual === "Midgard_Aberto";
     const som = defMundo.bioma === "sombra" && mapaAtual === "Midgard_Aberto";
@@ -2439,14 +2472,17 @@ function desenharObjeto(c, o) {
         c.fillStyle = "#6a5638"; c.strokeStyle = "#1f160b"; c.lineWidth = 2;
         c.beginPath(); c.moveTo(x - 6, y); c.quadraticCurveTo(x - 4 + bal * 0.2, y - h * 0.3, x - 3 + bal * 0.4, y - h * 0.55); c.lineTo(x + 3 + bal * 0.4, y - h * 0.55); c.quadraticCurveTo(x + 4 + bal * 0.2, y - h * 0.3, x + 6, y); c.closePath(); c.fill(); c.stroke();
         const tons = [["#2f8a58", "#3ea468"], ["#3a9a5c", "#52b676"], ["#2a7d56", "#43a06a"]][o.v];
-        [[-r * 0.55, -h * 0.62, r * 0.8, 0.8], [r * 0.55, -h * 0.64, r * 0.8, 0.9], [0, -h * 0.85, r * 0.95, 1.25]].forEach((bl, i) => {
+        [[-r * 0.95, -h * 0.5, r * 0.6, 0.6], [r * 0.95, -h * 0.52, r * 0.6, 0.7], [-r * 0.55, -h * 0.62, r * 0.8, 0.8], [r * 0.55, -h * 0.64, r * 0.8, 0.9], [0, -h * 0.85, r * 0.95, 1.25]].forEach((bl, i) => {
             const off = bal * bl[3] + Math.sin(T * 0.006 + x * 0.02 + i * 2) * 0.8;
             c.fillStyle = tons[i % 2]; c.strokeStyle = "#143d29"; c.lineWidth = 2;
             c.beginPath(); c.arc(x + bl[0] + off, y + bl[1], bl[2], 0, TAU); c.fill(); c.stroke();
+            c.fillStyle = "rgba(8,50,28,0.22)"; c.beginPath(); c.ellipse(x + bl[0] + off + bl[2] * 0.15, y + bl[1] + bl[2] * 0.5, bl[2] * 0.8, bl[2] * 0.4, 0, 0, Math.PI); c.fill();
             c.fillStyle = "rgba(255,255,220,0.14)"; c.beginPath(); c.arc(x + bl[0] + off - bl[2] * 0.25, y + bl[1] - bl[2] * 0.25, bl[2] * 0.55, 0, TAU); c.fill();
         });
         c.fillStyle = "rgba(255,240,170," + (0.35 + 0.35 * pulso) + ")";
         c.beginPath(); c.arc(x + r * 0.2 + bal * 1.25, y - h * 0.9, 3.2, 0, TAU); c.arc(x - r * 0.5 + bal * 0.8, y - h * 0.65, 2.6, 0, TAU); c.arc(x + r * 0.7 + bal * 0.9, y - h * 0.7, 2.4, 0, TAU); c.fill();
+    } else if (o.type === "portal_oculto") {
+        desenharPortalOculto(c, o);
     } else if (o.type === "tree") {
         desenharPinheiro(c, o);
     } else if (o.type === "stone") {
@@ -2631,6 +2667,7 @@ function desenharMural(c, n) {
 
 function desenharNpc(c, n) {
     const x = n.x, y = n.y, balanco = Math.sin(T * 0.003 + x) * 1.2;
+    if (n.id === "ljos") { desenharElfoLuz(c, n); return; }
     if (n.id.indexOf("mural") === 0) { desenharMural(c, n); desenharMarcadorNpc(c, n, x, y); return; }
     elipse(c, x + 4, y, 16, 6, "rgba(8,20,30,0.3)");
     c.strokeStyle = "#140e08"; c.lineWidth = 2;
@@ -2755,11 +2792,11 @@ const TIPOS_G = {
 // Quantas missões do mural ficam disponíveis ao mesmo tempo (cada nova abre ao concluir uma). Há mais missões que o necessário.
 const JANELA_MURAL = 5;
 const MURAIS = [
-    { mundo: "midgard", npc: "mural", prefixo: "g", total: 122, xp: 55, tipos: ["draugr", "lobo", "corvo", "runico", "cristal", "jotunn", "todos"], cap: "Épico" },
-    { mundo: "alfheim", npc: "mural_alfheim", prefixo: "f", total: 120, xp: 320, tipos: ["espirito", "javali", "elfonegro", "cristal", "todos"], cap: "Lendário" },
-    { mundo: "svartalfheim", npc: "mural_svart", prefixo: "n", total: 120, xp: 800, tipos: ["morcego", "aranha", "golem", "bruxo", "cristal", "todos"], cap: "Lendário" },
-    { mundo: "vanaheim", npc: "mural_vana", prefixo: "w", total: 120, xp: 1400, tipos: ["afogado", "cavalomarinho", "volvac", "gato", "espantalho", "vanir", "cristal", "todos"], cap: "Lendário" },
-    { mundo: "jotunheim", npc: "mural_jotun", prefixo: "k", total: 120, xp: 2200, tipos: ["lobogelo", "draugrgelo", "trol", "gigantegelo", "bruxaferro", "cristal", "todos"], cap: "Lendário" }
+    { mundo: "midgard", npc: "mural", prefixo: "g", total: 50, xp: 55, tipos: ["draugr", "lobo", "corvo", "runico", "cristal", "jotunn", "todos"], cap: "Épico" },
+    { mundo: "alfheim", npc: "mural_alfheim", prefixo: "f", total: 50, xp: 320, tipos: ["espirito", "javali", "elfonegro", "cristal", "todos"], cap: "Lendário" },
+    { mundo: "svartalfheim", npc: "mural_svart", prefixo: "n", total: 50, xp: 800, tipos: ["morcego", "aranha", "golem", "bruxo", "cristal", "todos"], cap: "Lendário" },
+    { mundo: "vanaheim", npc: "mural_vana", prefixo: "w", total: 50, xp: 1400, tipos: ["afogado", "cavalomarinho", "volvac", "gato", "espantalho", "vanir", "cristal", "todos"], cap: "Lendário" },
+    { mundo: "jotunheim", npc: "mural_jotun", prefixo: "k", total: 50, xp: 2200, tipos: ["lobogelo", "draugrgelo", "trol", "gigantegelo", "bruxaferro", "cristal", "todos"], cap: "Lendário" }
 ];
 const ROMANO = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX", "XXI", "XXII", "XXIII", "XXIV", "XXV"];
 (function gerarMurais() {
@@ -2768,7 +2805,8 @@ const ROMANO = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI
         for (let i = 0; i < m.total; i++) {
             const g = TIPOS_G[m.tipos[i % m.tipos.length]];
             const k = cont[g.titulo] = (cont[g.titulo] || 0) + 1;
-            const n = Math.min(g.max, Math.round(g.base + g.esc * i));
+            const dif = DIF_MUNDO[m.mundo] || 1, df = g.chave.indexOf("coletar") === 0 ? 1 + (dif - 1) * 0.3 : dif;
+            const n = Math.round(Math.min(g.max, g.base + g.esc * i) * df);
             const q = {
                 id: m.prefixo + (i + 1), mundo: m.mundo, tipo: "mural", giver: m.npc, req: i >= JANELA_MURAL ? m.prefixo + (i + 1 - JANELA_MURAL) : undefined,
                 titulo: g.titulo + " " + (ROMANO[k - 1] || k), desc: g.desc(n), chave: g.chave, n,
@@ -2782,10 +2820,13 @@ const ROMANO = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI
     }
 })();
 
+// Missões principais dos mundos seguintes também pedem mais (metade do fator do mural), para não ficarem triviais.
+for (const q of QUESTS) { const d = DIF_MUNDO[q.mundo]; if (d > 1 && q.tipo === "main" && q.chave.indexOf("kill:") === 0) { const f = 1 + (d - 1) * 0.5; q.n = Math.round(q.n * f); q.desc = q.desc.replace(/\b\d+\b/, q.n); } }
+
 const FALAS = {
     jarl: "Midgard resiste, viajante, mas o Fimbulvetr não perdoa. Escolha o que quer enfrentar. Cada missão é por sua conta.",
     volva: "As runas sussurram o seu nome. Há muito que a neve esconde, e eu preciso de olhos jovens para encontrá-lo.",
-    mural: "Pergaminhos pregados pelos moradores. Várias tarefas ficam abertas ao mesmo tempo, e cada uma concluída revela outra. Há mais tarefas do que o necessário: escolha as que preferir para chegar ao portal desta terra.",
+    mural: "Pergaminhos pregados pelos moradores. Várias tarefas ficam abertas ao mesmo tempo, e cada uma concluída revela outra. Há mais tarefas do que o necessário (30 bastam para o portal desta terra), e cada mundo pede mais que o anterior: escolha as que preferir.",
     brokkr: "O martelo dos deuses não nasce na minha forja, viajante. Procure o meu irmão Eitri, o mestre ferreiro de Svartalfheim, o terceiro mundo. Ele sabe forjar o Mjölnir.",
     get mural_alfheim() { return FALAS.mural; },
     get mural_svart() { return FALAS.mural; },
@@ -2808,7 +2849,7 @@ const FALAS = {
         return "Eu sou o que acontece agora. O Olho de Odin é um segredo de Jötunheim, e só de lá ele chama. " + (e ? "O seu Olho está na etapa " + e + " de 4." : "O seu Olho ainda não despertou.");
     },
 
-    skuld: () => "Eu sou o que virá. Nove mundos esperam: Midgard, Alfheim, Svartalfheim, Vanaheim, Jötunheim (onde Ymir aguarda), Niflheim, Muspelheim, Helheim e, por último, Asgard. Cada mundo tem os seus portais, e eles só despertam com as façanhas feitas nele: 35 missões em Midgard abriram o caminho até aqui; 100 abrem o próximo mundo."
+    skuld: () => "Eu sou o que virá. Nove mundos esperam: Midgard, Alfheim, Svartalfheim, Vanaheim, Jötunheim (onde Ymir aguarda), Niflheim, Muspelheim, Helheim e, por último, Asgard. Cada mundo tem os seus portais, e eles só despertam com as façanhas feitas nele: 15 missões em Midgard abriram o caminho até aqui; 30 abrem o próximo mundo, e cada mundo é mais duro que o anterior."
 };
 
 function contar(chave, n) {
@@ -2855,12 +2896,13 @@ function textoRecompensa(q) {
 }
 
 function missoesFeitas(mundo) { let n = 0; for (const q of QUESTS) if ((!mundo || q.mundo === mundo) && estadoQuest(q) === "feita") n++; return n; }
-function portalAberto(pt) { return (!pt.req || missoesFeitas(pt.mundoReq) >= pt.req) && !portalQuebrado(pt); }
+function portalAberto(pt) { return (!pt.req || (missoesFeitas(pt.mundoReq) >= pt.req && reqExtraPendentes(pt.mundoReq).length === 0)) && !portalQuebrado(pt); }
 // Portal de Mímir: está em ruínas até o jogador reunir 3 fragmentos (um de cada campeão de Vanaheim) e consertá-lo
 const FRAG_PORTAL = 3;
 function portalQuebrado(pt) { return !!pt.quebrado && !jogadorAtual.portalConsertado; }
 function textoPortal(pt) {
     if (portalQuebrado(pt)) return qtdMat("fragportal") >= FRAG_PORTAL ? "[ E ] Consertar o Portal de Mímir" : "[ E ] Portal em ruínas: fragmentos " + qtdMat("fragportal") + " / " + FRAG_PORTAL;
+    if (!portalAberto(pt) && missoesFeitas(pt.mundoReq) >= pt.req && reqExtraPendentes(pt.mundoReq).length) return "[ E ] Portal selado: falta " + reqExtraPendentes(pt.mundoReq)[0].txt;
     return portalAberto(pt) ? "[ E ] Entrar: " + pt.nome : "[ E ] Portal selado: " + missoesFeitas(pt.mundoReq) + " / " + pt.req + " missões de " + NOMES_TERRA[pt.mundoReq];
 }
 function darFragmentoMini(tipo) {
@@ -3013,6 +3055,11 @@ function alvoInteracao() {
                 }
                 continue;
             }
+            if (o.type === "portal_oculto") {
+                const d = Math.hypot(P.x - o.x, P.y - (o.y + 14));
+                if (d < 85 && d < md) { md = d; melhor = { tipo: "oculto", texto: jogadorAtual.portaisOcultos && jogadorAtual.portaisOcultos[mundoId] ? "[ E ] Entrar no portal escondido (Sala das Ondas)" : "[ E ] Investigar as ruínas" }; }
+                continue;
+            }
             if (o.type === "pilar_runico") {
                 const d = Math.hypot(P.x - o.x, P.y - (o.y + 10));
                 if (d < 70 && d < md) { md = d; melhor = { tipo: "pilar", id: o.id, texto: jogadorAtual.pilares && jogadorAtual.pilares[o.id] ? "[ E ] Pilar rúnico (aceso)" : "[ E ] Tocar o pilar rúnico" }; }
@@ -3047,7 +3094,7 @@ function alvoInteracao() {
         }
         if (melhor) return melhor;
     }
-    if (pertoDaSaida) return { tipo: "saida", texto: "[ E ] Voltar a Midgard" };
+    if (pertoDaSaida) return { tipo: "saida", texto: ondasAtivas() ? "[ E ] Sair da Sala das Ondas" : "[ E ] Voltar a Midgard" };
     return null;
 }
 
@@ -3061,7 +3108,8 @@ function entrarNoPortal(pt) {
         return;
     }
     if (!portalAberto(pt)) {
-        aviso("O portal está selado. Conclua " + pt.req + " missões em " + NOMES_TERRA[pt.mundoReq] + " (" + missoesFeitas(pt.mundoReq) + " feitas).", "#b38cff", 4);
+        const falta = reqExtraPendentes(pt.mundoReq);
+        aviso(missoesFeitas(pt.mundoReq) < pt.req ? "O portal está selado. Conclua " + pt.req + " missões em " + NOMES_TERRA[pt.mundoReq] + " (" + missoesFeitas(pt.mundoReq) + " feitas)." : "O portal está selado. Falta: " + falta.map(r => r.txt).join("; ") + ".", "#b38cff", 6);
         sfx("hurt");
         return;
     }
@@ -3131,6 +3179,7 @@ function entrarNaCavernaDoBoss(id, cave) {
 
 function sairDaCaverna() {
     pertoDaSaida = false;
+    if (typeof sairDasOndas === "function") sairDasOndas();
     const dasNornas = mapaAtual === "Interior_Nornas";
     const volta = !dasNornas && retornoCaverna ? retornoCaverna : { mundo: "midgard", x: SAIDA_YMIR.x, y: SAIDA_YMIR.y };
     usarMundo(dasNornas ? "midgard" : volta.mundo);
@@ -3168,6 +3217,7 @@ function desenharMundo(c) {
         desenharParkour(c);
         desenharZonas(c);
         desenharPickups(c);
+        desenharSupressao(c, P.x, P.y);   // no chão, por baixo das árvores e dos inimigos
 
         const lista = [];
         const objs = objetosDoMapa();
@@ -3206,6 +3256,8 @@ function desenharMundo(c) {
     c.fillStyle = vg; c.fillRect(0, 0, VW, VH);
     desenharCicloDia(c);
     desenharClima(c);
+    if (typeof desenharCataFx === "function") desenharCataFx(c);
+    if (typeof desenharHudOndas === "function") desenharHudOndas(c);
     if (P.hp / P.max < 0.3 && estado === "jogo") {
         c.fillStyle = "rgba(212,72,59," + (0.06 + 0.05 * Math.sin(T * 0.008)) + ")"; c.fillRect(0, 0, VW, VH);
     }
@@ -3295,14 +3347,17 @@ function escolherTipo(lista) {
 
 // Dificuldade global (ajuste aqui): mais vida, mais dano e criaturas um pouco mais rápidas
 const DIF = { hp: 1.4, hpBoss: 1.5, dano: 1.3, vel: 1.06, cap: 1.25, elite: 0.11 };
+// Ajuste por mundo: Jötunheim é bem mais duro (mais vida, dano, velocidade, população e elites)
+const DIF_MUNDO_INI = { jotunheim: { hp: 1.45, dano: 1.4, vel: 1.07, cap: 1.35, elite: 1.6, spawn: 0.75 } };
+function difMundoIni() { return DIF_MUNDO_INI[mundoId] || { hp: 1, dano: 1, vel: 1, cap: 1, elite: 1, spawn: 1 }; }
 
 let _idIni = 0;
 function mkInimigo(tipo, x, y, nivel, elite) {
     const d = DEF[tipo], nv = nivel || 1;
-    const hpMul = (1 + 0.28 * (nv - 1)) * (elite ? 2.6 : 1) * (d.boss ? DIF.hpBoss : DIF.hp) * (mundoId === "midgard" ? 0.7 : 1);
+    const dm = difMundoIni(), hpMul = (1 + 0.28 * (nv - 1)) * (elite ? 2.6 : 1) * (d.boss ? DIF.hpBoss : DIF.hp) * (mundoId === "midgard" ? 0.7 : 1) * (d.boss ? 1 : dm.hp);
     const e = {
         id: ++_idIni, tipo, x, y, r: d.r * (elite ? 1.15 : 1), hp: d.hp * hpMul, max: d.hp * hpMul,
-        sp: d.sp * (1 + 0.02 * (nv - 1)) * DIF.vel, dmg: d.dmg * (1 + 0.18 * (nv - 1)) * (elite ? 1.4 : 1) * DIF.dano * (mundoId === "midgard" ? 0.75 : 1),
+        sp: d.sp * (1 + 0.02 * (nv - 1)) * DIF.vel * dm.vel, dmg: d.dmg * (1 + 0.18 * (nv - 1)) * (elite ? 1.4 : 1) * DIF.dano * (mundoId === "midgard" ? 0.75 : 1) * dm.dano,
         nivel: nv, elite: !!elite, kx: 0, ky: 0, flash: 0, slow: 0, stun: 0, t: rand(0, 5), ph: rand(0, 6.28),
         ang: 0, cd: rand(1, 3), dead: false, boss: !!d.boss, mini: !!d.mini, lunge: 0, wander: rand(0, TAU), wt: 0, cast: 0, wind: 0
     };
@@ -3314,12 +3369,12 @@ function atualizarSpawn(dt) {
     if (mapaAtual !== "Midgard_Aberto") return;
     spawnT -= dt;
     if (spawnT > 0) return;
-    spawnT = 1.1;
+    spawnT = 1.1 * difMundoIni().spawn;
     const pj = typeof mpEscolherJogador === "function" ? mpEscolherJogador() : P;
     const reg = regiaoEm(pj.x, pj.y), pop = POP[reg.id];
     if (!pop) return;
     const nReg = inimigos.filter(e => regiaoEm(e.x, e.y).id === reg.id).length;
-    if (nReg >= Math.round(pop.cap * DIF.cap)) return;
+    if (nReg >= Math.round(pop.cap * DIF.cap * difMundoIni().cap)) return;
     for (let t = 0; t < 10; t++) {
         const a = rand(0, TAU), d = rand(560, 760);
         const x = clamp(pj.x + Math.cos(a) * d, reg.x + 40, reg.x + reg.w - 40);
@@ -3329,13 +3384,14 @@ function atualizarSpawn(dt) {
         if (naVila(x, y) || Math.hypot(x - defMundo.cidade.x, y - defMundo.cidade.y) < defMundo.cidade.r + 160) continue;
         if (!pontoLivre(x, y, 26)) continue;   // nada nasce dentro de árvores, pedras ou casas
         const aur = typeof clima !== "undefined" && clima.tipo === "aurora" && clima.int > 0.5 ? 3 : 1;   // sob a aurora, criaturas raras despertam
-        mkInimigo(escolherTipo(pop.tipos), x, y, pop.nivel, Math.random() < DIF.elite * aur);
+        mkInimigo(escolherTipo(pop.tipos), x, y, pop.nivel, Math.random() < DIF.elite * aur * difMundoIni().elite);
         return;
     }
 }
 
 function atualizarInimigosBase(dt) {
     atualizarSpawn(dt);
+    if (typeof atualizarOndas === "function") atualizarOndas(dt);
     const seguro = naVila(P.x, P.y);
     for (const e of inimigos) {
         if (e.dead || e.proxy) continue;
@@ -3358,7 +3414,7 @@ function atualizarInimigosBase(dt) {
         }
         let spd = e.sp * (e.slow > 0 ? 0.45 : 1);
         let vx = 0, vy = 0;
-        const agressivo = dist < d.aggro && !(seguro && !_mpAlvoRemoto && !e.sitio);
+        const agressivo = (dist < d.aggro || e.ondas) && !(seguro && !_mpAlvoRemoto && !e.sitio);
         if (!agressivo) {
             e.wt -= dt;
             if (e.wt <= 0) { e.wander = rand(0, TAU); e.wt = rand(1.5, 3.5); }
@@ -4428,11 +4484,11 @@ const TITULOS = [];
     const abates = [[10, "Primeiro Sangue"], [50, "Lâmina Afiada"], [100, "Matador de Draugr"], [250, "Ceifador do Norte"], [500, "Terror dos Mortos"], [1000, "Flagelo de Midgard"], [2500, "Sombra da Guerra"], [5000, "Carniceiro de Hel"], [10000, "Destruidor de Mundos"], [20000, "Arauto do Ragnarök"], [35000, "Ceifador Eterno"], [50000, "Lenda Sangrenta"]];
     abates.forEach((a, i) => add("k" + a[0], a[1], "Derrote " + a[0] + " inimigos.", () => ct("kill:*") >= a[0], b(n++, 1 + i * 0.25)));
     // 2) Missões totais (12)
-    const miss = [[3, "Aprendiz de Saga"], [10, "Mensageiro do Jarl"], [25, "Herói da Aldeia"], [50, "Mão Prestativa"], [100, "Campeão das Terras"], [150, "Andarilho dos Mundos"], [250, "Escolhido das Nornas"], [400, "Tecelão da Saga"], [550, "Voz do Destino"], [700, "Mestre das Sagas"], [850, "Cronista dos Nove"], [900, "Saga Completa"]];
+    const miss = [[3, "Aprendiz de Saga"], [8, "Mensageiro do Jarl"], [15, "Herói da Aldeia"], [25, "Mão Prestativa"], [40, "Campeão das Terras"], [60, "Andarilho dos Mundos"], [80, "Escolhido das Nornas"], [100, "Tecelão da Saga"], [125, "Voz do Destino"], [150, "Mestre das Sagas"], [175, "Cronista dos Nove"], [200, "Saga Completa"]];
     miss.forEach((a, i) => add("q" + a[0], a[1], "Complete " + a[0] + " missões.", () => missoesFeitas() >= a[0], b(n++, 1 + i * 0.25)));
     // 3) Missões por mundo (9)
     const nomesMundo = { midgard: "Guardião de Midgard", alfheim: "Amigo dos Elfos", svartalfheim: "Irmão dos Anões", vanaheim: "Filho de Vanir", jotunheim: "Quebra-Gigantes", niflheim: "Andarilho da Névoa", muspelheim: "Domador das Chamas", helheim: "Libertador de Hel", asgard: "Portador de Asgard" };
-    ORDEM_MUNDOS.forEach((m, i) => add("w" + m, nomesMundo[m], "Complete 100 missões em " + (MUNDOS[m] ? MUNDOS[m].nome : m) + ".", () => missoesFeitas(m) >= 100, b(n++, 2.5 + i * 0.1)));
+    ORDEM_MUNDOS.forEach((m, i) => add("w" + m, nomesMundo[m], "Complete " + MISSOES_MUNDO + " missões em " + (MUNDOS[m] ? MUNDOS[m].nome : m) + ".", () => missoesFeitas(m) >= MISSOES_MUNDO, b(n++, 2.5 + i * 0.1)));
     // 4) Chefes (12)
     const chefes = [["ymir", "Quebrador de Gelo", "Derrote Ymir."], ["nid", "Matador do Verme", "Derrote Níðhöggr."], ["eik", "Caçador de Cervos", "Derrote Eikþyrnir."], ["svart", "Matador de Dragões", "Derrote Fáfnir."], ["gull", "Queimador de Bruxas", "Derrote Gullveig."]];
     chefes.forEach(c => add("b" + c[0], c[1], c[2], () => ct("boss:" + c[0]) >= 1, b(n++, 3)));
@@ -4922,12 +4978,12 @@ function teleportar() {
         const v = vetorEntrada(), a = v.l > 0.1 ? Math.atan2(v.y, v.x) : P.face;
         tx = P.x + Math.cos(a) * 260; ty = P.y + Math.sin(a) * 260;
     }
-    burst(P.x, P.y, "#e0a93f", 14, 200, 0.5); anel(P.x, P.y, 50, "#e0a93f", 0.35);
+    const ox = P.x, oy = P.y;
     P.x = tx; P.y = ty; P.kx = 0; P.ky = 0;
     limitarAoMapa(P, P.r + (mapaAtual === "Midgard_Aberto" ? 6 : 40));
     resolverColisoes(P, P.r);
     P.dashInv = 0.5; P.tpCd = 2.5;
-    anel(P.x, P.y, 60, "#fff2c0", 0.4); burst(P.x, P.y, "#fff2c0", 14, 200, 0.5);
+    efeitoTeleporte(ox, oy, P.x, P.y);
     shake = Math.max(shake, 4);
     sfx("tp");
 }
@@ -5195,6 +5251,7 @@ function desenharMjolnirVoando(c) {
 }
 
 function desenharEfeitos(c) {
+    desenharTpFx(c);
     for (const q of proj) desenharProj(c, q);
     for (const q of aneisD) {
         c.save(); c.translate(q.x, q.y); c.rotate(q.rot);
@@ -5305,7 +5362,6 @@ function desenharEmpunhada(c, arma, sa) {
 
 function desenharJogador(c) {
     const x = P.x, y = P.y;
-    desenharSupressao(c, x, y);
     c.save();
     c.fillStyle = "rgba(0,0,0,0.35)"; c.beginPath(); c.ellipse(x, y + 8, 15, 8, 0, 0, TAU); c.fill();
     const rar = jogadorAtual.raridade;
@@ -5322,9 +5378,10 @@ function desenharJogador(c) {
     }
     if (P.inv > 0 && Math.floor(T / 60) % 2 === 0) c.globalAlpha = 0.45;
     if (P.dash > 0) c.globalAlpha = 0.6;
+    if (typeof CORPO_ATIVO !== "undefined" && CORPO_ATIVO) { desenharCorpoHeroi(c, x, y); c.restore(); desenharOlhoJogador(c, x, y); desenharCorvos(c, x, y); desenharValhalla(c); return; }
     const sp = heroiSprite();
     if (sp) { desenharHeroiSprite(c, x, y, sp); c.restore(); desenharOlhoJogador(c, x, y); desenharCorvos(c, x, y); desenharValhalla(c); return; }
-    c.translate(x, y); c.rotate(P.face);
+    c.translate(x, y); c.rotate(P.face); { const ve = visRaca().esc; c.scale(ve, ve); }
     const r = P.r, fl = P.hitFlash > 0, mov = P.movendo ? Math.sin(T * 0.016) : 0, sway = Math.sin(T * 0.006) * 1.5;
     const luz = rarIdx(jogadorAtual.raridade) >= 5;
     const poli = (pts, fill, stroke) => { c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); c.fillStyle = fill; c.fill(); if (stroke) { c.strokeStyle = stroke; c.lineWidth = 1.4; c.stroke(); } };
@@ -5332,6 +5389,8 @@ function desenharJogador(c) {
     const gc = c.createLinearGradient(-r * 2.3, 0, 0, 0); gc.addColorStop(0, fl ? "#fff" : "#6e1410"); gc.addColorStop(1, fl ? "#fff" : "#c0392b");
     poli([[-r * 0.2, -r * 0.95], [-r * 1.6, -r * 0.7 + sway], [-r * 2.4, sway * 0.6], [-r * 1.6, r * 0.7 + sway], [-r * 0.2, r * 0.95]], gc, "rgba(30,6,6,0.8)");
     c.strokeStyle = "rgba(255,120,100,0.35)"; c.lineWidth = 1; c.beginPath(); c.moveTo(-r * 0.4, 0); c.lineTo(-r * 2.1, sway * 0.5); c.stroke();
+    c.strokeStyle = fl ? "#fff" : "rgba(224,169,63,0.8)"; c.lineWidth = 1.1; c.beginPath(); c.moveTo(-r * 1.6, -r * 0.7 + sway); c.lineTo(-r * 2.4, sway * 0.6); c.lineTo(-r * 1.6, r * 0.7 + sway); c.stroke();   // debrum dourado
+    c.strokeStyle = "rgba(20,4,4,0.35)"; c.lineWidth = 1; for (let i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(-r * 0.6, i * r * 0.42); c.lineTo(-r * 2.05, i * r * 0.5 + sway * 0.5); c.stroke(); }   // dobras
     // botas (passos)
     c.fillStyle = fl ? "#fff" : "#2c1c12"; c.strokeStyle = "rgba(10,14,18,0.8)"; c.lineWidth = 1.2;
     c.beginPath(); c.ellipse(mov * 5 - 2, -r * 0.5, 5.5, 3.6, 0, 0, TAU); c.fill(); c.stroke();
@@ -5349,12 +5408,20 @@ function desenharJogador(c) {
     const gt = c.createLinearGradient(0, -r, 0, r); gt.addColorStop(0, fl ? "#fff" : "#8b6a4a"); gt.addColorStop(0.5, fl ? "#fff" : "#6a4630"); gt.addColorStop(1, fl ? "#fff" : "#4a2f1e");
     c.fillStyle = gt; c.strokeStyle = "rgba(10,14,18,0.85)"; c.lineWidth = 1.6;
     c.beginPath(); c.ellipse(-1, 0, r * 0.82, r * 1.02, 0, 0, TAU); c.fill(); c.stroke();
-    c.fillStyle = fl ? "#fff" : "#9aa7b2";
-    c.beginPath(); c.ellipse(0, -r * 0.88, 6, 4.6, -0.3, 0, TAU); c.fill(); c.stroke();
-    c.beginPath(); c.ellipse(0, r * 0.88, 6, 4.6, 0.3, 0, TAU); c.fill(); c.stroke();
+    c.save(); c.beginPath(); c.ellipse(-1, 0, r * 0.82, r * 1.02, 0, 0, TAU); c.clip();
+    c.strokeStyle = "rgba(20,10,6,0.5)"; c.lineWidth = 1; for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(-r, i * r * 0.36); c.lineTo(r * 0.5, i * r * 0.36); c.stroke(); }   // placas de couro
+    c.strokeStyle = "rgba(255,225,170,0.18)"; for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(-r, i * r * 0.36 - 1); c.lineTo(r * 0.5, i * r * 0.36 - 1); c.stroke(); }
+    c.restore();
+    for (const sg of [-1, 1]) {   // ombreiras de aço com rebite e fio de luz
+        const og = c.createRadialGradient(-1, sg * r * 0.88 - 1.5, 0.5, 0, sg * r * 0.88, 7); og.addColorStop(0, fl ? "#fff" : "#d7dfe6"); og.addColorStop(1, fl ? "#fff" : "#7d8a96");
+        c.fillStyle = og; c.beginPath(); c.ellipse(0, sg * r * 0.88, 6.4, 4.8, -0.3 * sg, 0, TAU); c.fill(); c.stroke();
+        c.fillStyle = fl ? "#fff" : "#e0a93f"; c.beginPath(); c.arc(1, sg * r * 0.88, 1.1, 0, TAU); c.fill();
+    }
     c.strokeStyle = "rgba(220,170,70,0.9)"; c.lineWidth = 1.6; c.beginPath(); c.moveTo(-r * 0.5, -r * 0.85); c.lineTo(-r * 0.5, r * 0.85); c.stroke();   // cinto
+    c.fillStyle = fl ? "#fff" : "#e0a93f"; c.strokeStyle = "rgba(40,24,6,0.9)"; c.lineWidth = 1; c.fillRect(-r * 0.5 - 2.4, -2.4, 4.8, 4.8); c.strokeRect(-r * 0.5 - 2.4, -2.4, 4.8, 4.8);   // fivela
     // mão da arma
-    c.fillStyle = fl ? "#fff" : "#e0b088"; c.beginPath(); c.arc(r * 0.55, -r * 0.65, 3.4, 0, TAU); c.fill(); c.stroke();
+    const vis = visRaca();
+    c.fillStyle = fl ? "#fff" : vis.pele; c.beginPath(); c.arc(r * 0.55, -r * 0.65, 3.4, 0, TAU); c.fill(); c.stroke();
     // cabeça: elmo com chifres
     c.strokeStyle = fl ? "#fff" : "#f1e7cf"; c.lineWidth = 3.2; c.lineCap = "round";
     c.beginPath(); c.moveTo(-1, -7); c.quadraticCurveTo(-4, -r * 1.35, 3, -r * 1.55); c.stroke();
@@ -5363,12 +5430,136 @@ function desenharJogador(c) {
     c.fillStyle = gh; c.strokeStyle = "rgba(10,14,18,0.85)"; c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, 8.6, 0, TAU); c.fill(); c.stroke();
     c.strokeStyle = "rgba(40,50,60,0.7)"; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-8, 0); c.lineTo(8.4, 0); c.stroke();   // crista
     c.fillStyle = fl ? "#fff" : "#2a3540"; c.beginPath(); c.moveTo(7, -1.6); c.lineTo(12, 0); c.lineTo(7, 1.6); c.closePath(); c.fill();   // protetor do nariz
-    c.fillStyle = fl ? "#fff" : "#d98c3c"; c.beginPath(); c.ellipse(6.5, 0, 3.4, 5, 0, -1.4, 1.4); c.fill();   // barba
+    if (vis.orelhas) { c.fillStyle = fl ? "#fff" : vis.pele; for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(-1, sg * 7.6); c.lineTo(-5, sg * 13.5); c.lineTo(3, sg * 8.2); c.closePath(); c.fill(); c.stroke(); } }
+    if (vis.barba) { c.fillStyle = fl ? "#fff" : vis.barba; c.beginPath(); c.ellipse(6.5, 0, 3.4 * vis.barbaG, 5 * Math.min(1.5, vis.barbaG), 0, -1.4, 1.4); c.fill(); }   // barba
+    else { c.fillStyle = fl ? "#fff" : vis.cabelo; c.beginPath(); c.ellipse(-3, 0, 6.5, 8.5, 0, 0, TAU); c.fill(); c.globalAlpha = 0.5; c.strokeStyle = "rgba(60,50,20,0.6)"; c.lineWidth = 1; c.stroke(); c.globalAlpha = 1; }   // elfo: cabelo longo no lugar da barba
+    c.strokeStyle = fl ? "#fff" : "rgba(224,169,63,0.9)"; c.lineWidth = 1.6; c.beginPath(); c.arc(0, 0, 8.6, -1.25, 1.25); c.stroke();   // faixa dourada do elmo
+    c.fillStyle = "rgba(255,255,255,0.45)"; c.beginPath(); c.ellipse(-3, -3.6, 2.6, 1.3, -0.6, 0, TAU); c.fill();   // brilho do aço
+    desenharRostoHeroi(c, vis, fl);
+    if (jogadorAtual.equip && jogadorAtual.equip.olho) desenharRunasOlho(c, r, sway, fl);
     if (luz) { c.strokeStyle = COR_RARIDADE[jogadorAtual.raridade]; c.globalAlpha = 0.55; c.lineWidth = 1.4; c.beginPath(); c.arc(0, 0, 10.5, 0, TAU); c.stroke(); c.globalAlpha = 1; }
     c.restore();
     desenharOlhoJogador(c, x, y);
     desenharCorvos(c, x, y);
     desenharValhalla(c);
+}
+
+// Aparência por raça: pele (mãos e rosto), barba/cabelo, olhos e porte
+const RACA_VIS = {
+    humano:    { pele: "#e0b088", sombra: "#b88a62", barba: "#7a4d2a", olho: "#6a4a30", esc: 1,    barbaG: 1 },
+    vanir:     { pele: "#f2d4a4", sombra: "#c9a878", barba: "#d9b25a", olho: "#4fa36a", esc: 1,    barbaG: 1 },
+    elfo:      { pele: "#f6e2c8", sombra: "#cdb396", barba: null,      olho: "#58c8e0", esc: 0.95, barbaG: 0, orelhas: true, cabelo: "#ece4a8" },
+    anao:      { pele: "#c98a5c", sombra: "#9a6440", barba: "#b5441e", olho: "#3b3b3b", esc: 0.9,  barbaG: 1.6 },
+    gigante:   { pele: "#9fc6de", sombra: "#6f98b4", barba: "#e2eaf0", olho: "#d8f0ff", esc: 1.14, barbaG: 1.25 },
+    einherjar: { pele: "#d6a074", sombra: "#a8764c", barba: "#8f9aa6", olho: "#c8a040", esc: 1.04, barbaG: 1.1 },
+    aesir:     { pele: "#f4cf94", sombra: "#c9a064", barba: "#f0d060", olho: "#e8b832", esc: 1.05, barbaG: 1,    aura: "#ffe08a" }
+};
+function visRaca() { const r = racaAtual(); return RACA_VIS[r ? r.id : "humano"] || RACA_VIS.humano; }
+// Rosto na abertura do elmo. Sem o Olho de Odin: os dois olhos têm a cor da raça. Com o Olho equipado: olho dourado com estrela e olho azul.
+function desenharRostoHeroi(c, vis, fl) {
+    const olho = !!(jogadorAtual.equip && jogadorAtual.equip.olho);
+    c.fillStyle = fl ? "#fff" : vis.pele; c.strokeStyle = "rgba(10,14,18,0.8)"; c.lineWidth = 1;
+    c.beginPath(); c.ellipse(4.6, 0, 3.6, 5.6, 0, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = fl ? "#fff" : vis.sombra; c.beginPath(); c.ellipse(6.4, 0, 1.4, 3.6, 0, 0, TAU); c.fill();
+    const cores = olho ? ["#f0b400", "#3ec4f0"] : [vis.olho, vis.olho];
+    [[-3.1, 0], [3.1, 1]].forEach(([dy, i]) => {
+        c.fillStyle = "#fdfbf4"; c.beginPath(); c.ellipse(4.2, dy, 1.9, 1.7, 0, 0, TAU); c.fill();
+        c.fillStyle = cores[i]; c.beginPath(); c.arc(4.6, dy, 1.35, 0, TAU); c.fill();
+        if (olho && i === 0) { c.strokeStyle = "#fff6c0"; c.lineWidth = 0.7; c.beginPath(); c.moveTo(3.3, dy); c.lineTo(5.9, dy); c.moveTo(4.6, dy - 1.3); c.lineTo(4.6, dy + 1.3); c.stroke(); }
+        else { c.fillStyle = "#15202a"; c.beginPath(); c.arc(4.8, dy, 0.55, 0, TAU); c.fill(); }
+        c.fillStyle = "rgba(255,255,255,0.9)"; c.beginPath(); c.arc(4.0, dy - 0.6, 0.4, 0, TAU); c.fill();
+    });
+    c.strokeStyle = "rgba(30,18,10,0.75)"; c.lineWidth = 0.9;   // sobrancelhas
+    c.beginPath(); c.moveTo(3.2, -4.7); c.lineTo(5.6, -4.1); c.moveTo(3.2, 4.7); c.lineTo(5.6, 4.1); c.stroke();
+}
+
+function desenharCabecaFrente(c, vis, olho, pulso) {
+    const OUT = "rgba(14,10,8,0.9)"; c.lineJoin = "round"; c.lineCap = "round";
+    // cabelo comprido (elfo) atrás do rosto
+    if (!vis.barba) { c.fillStyle = vis.cabelo; c.strokeStyle = OUT; c.lineWidth = 1.2; for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(32 + sg * 13, 28); c.quadraticCurveTo(32 + sg * 21, 44, 32 + sg * 17, 58); c.lineTo(32 + sg * 11, 52); c.quadraticCurveTo(32 + sg * 14, 42, 32 + sg * 12, 32); c.closePath(); c.fill(); c.stroke(); } }
+    // orelhas
+    c.fillStyle = vis.pele; c.strokeStyle = OUT; c.lineWidth = 1.2;
+    for (const sg of [-1, 1]) { c.beginPath(); if (vis.orelhas) { c.moveTo(32 + sg * 14, 33); c.lineTo(32 + sg * 24, 26); c.lineTo(32 + sg * 15, 42); } else c.ellipse(32 + sg * 15, 38, 3.4, 4.6, 0, 0, TAU); c.closePath(); c.fill(); c.stroke(); }
+    // rosto
+    const fg = c.createLinearGradient(16, 0, 48, 0); fg.addColorStop(0, vis.pele); fg.addColorStop(0.7, vis.pele); fg.addColorStop(1, vis.sombra);
+    c.fillStyle = fg; c.strokeStyle = OUT; c.lineWidth = 1.5; c.beginPath(); c.ellipse(32, 37, 15, 16.5, 0, 0, TAU); c.fill(); c.stroke();
+    // barba por raça
+    if (vis.barba) {
+        const bgn = vis.barbaG, fy = 50 + 5 * (bgn - 1);
+        c.fillStyle = vis.barba; c.strokeStyle = OUT; c.lineWidth = 1.3;
+        c.beginPath(); c.moveTo(17, 40); c.quadraticCurveTo(15, 52 + 4 * (bgn - 1), 24, fy + 4); c.quadraticCurveTo(32, fy + 12 * (bgn - 0.4), 40, fy + 4); c.quadraticCurveTo(49, 52 + 4 * (bgn - 1), 47, 40);
+        c.quadraticCurveTo(44, 46, 38, 46.5); c.quadraticCurveTo(32, 44.5, 26, 46.5); c.quadraticCurveTo(20, 46, 17, 40); c.closePath(); c.fill(); c.stroke();
+        c.strokeStyle = "rgba(0,0,0,0.25)"; c.lineWidth = 0.9; for (let k = -2; k <= 2; k++) { c.beginPath(); c.moveTo(32 + k * 5, 47); c.lineTo(32 + k * 6, fy + 5); c.stroke(); }
+    }
+    // olhos
+    const cores = olho ? ["#f0b400", "#3ec4f0"] : [vis.olho, vis.olho];
+    [[25.5, 0], [38.5, 1]].forEach(([ex, i]) => {
+        if (olho) { const g = c.createRadialGradient(ex, 39, 1, ex, 39, 9); g.addColorStop(0, (i ? "rgba(62,196,240," : "rgba(255,210,80,") + (0.55 * pulso) + ")"); g.addColorStop(1, "rgba(0,0,0,0)"); c.fillStyle = g; c.fillRect(ex - 10, 29, 20, 20); }
+        c.fillStyle = "#fdfbf4"; c.strokeStyle = OUT; c.lineWidth = 1.1; c.beginPath(); c.ellipse(ex, 39, 5, 4.6, 0, 0, TAU); c.fill(); c.stroke();
+        c.fillStyle = cores[i]; c.beginPath(); c.arc(ex + (i ? -0.6 : 0.6), 39.4, 3.5, 0, TAU); c.fill();
+        c.fillStyle = "rgba(0,0,0,0.28)"; c.beginPath(); c.arc(ex + (i ? -0.6 : 0.6), 41, 3.5, 0, Math.PI); c.fill();
+        if (olho && i === 0) { c.strokeStyle = "#fff6c0"; c.lineWidth = 1.2; c.beginPath(); c.moveTo(ex - 2.6, 39.4); c.lineTo(ex + 3.8, 39.4); c.moveTo(ex + 0.6, 36.2); c.lineTo(ex + 0.6, 42.6); c.stroke(); }
+        else { c.fillStyle = "#101a24"; c.beginPath(); c.arc(ex + (i ? -0.6 : 0.6), 39.4, 1.5, 0, TAU); c.fill(); }
+        c.fillStyle = "#fff"; c.beginPath(); c.arc(ex - 1.2, 37.8, 1.1, 0, TAU); c.fill();
+        c.strokeStyle = OUT; c.lineWidth = 1.6; c.beginPath(); c.moveTo(ex - 5.4, 36.4); c.quadraticCurveTo(ex, 33.6, ex + 5.4, 36.4); c.stroke();   // pálpebra
+        c.strokeStyle = "rgba(40,24,12,0.85)"; c.lineWidth = 1.5; c.beginPath(); c.moveTo(ex - 5, 33.2); c.lineTo(ex + 5, 32.2 + (i ? -1 : 1) * 0); c.stroke();   // sobrancelha
+    });
+    c.fillStyle = vis.sombra; c.beginPath(); c.ellipse(32, 44, 2, 1.4, 0, 0, TAU); c.fill();   // nariz
+    if (!vis.barba) { c.strokeStyle = "rgba(90,40,30,0.85)"; c.lineWidth = 1.2; c.beginPath(); c.moveTo(29, 49); c.quadraticCurveTo(32, 50.6, 35, 49); c.stroke(); }
+    c.fillStyle = "rgba(244,140,130,0.35)"; c.beginPath(); c.ellipse(21, 44, 3, 1.8, 0, 0, TAU); c.ellipse(43, 44, 3, 1.8, 0, 0, TAU); c.fill();
+    // elmo aberto com faixa dourada e chifres
+    const hg = c.createLinearGradient(0, 12, 0, 32); hg.addColorStop(0, "#e6eef4"); hg.addColorStop(1, "#7d8a96");
+    c.fillStyle = hg; c.strokeStyle = OUT; c.lineWidth = 1.6;
+    c.beginPath(); c.moveTo(15.5, 32); c.quadraticCurveTo(14, 12, 32, 10); c.quadraticCurveTo(50, 12, 48.5, 32); c.quadraticCurveTo(32, 28.5, 15.5, 32); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = "#e0a93f"; c.beginPath(); c.moveTo(15, 28.5); c.quadraticCurveTo(32, 25, 49, 28.5); c.lineTo(48.6, 32.2); c.quadraticCurveTo(32, 28.8, 15.4, 32.2); c.closePath(); c.fill(); c.stroke();
+    c.strokeStyle = "#f1e7cf"; c.lineWidth = 3; for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(32 + sg * 16, 22); c.quadraticCurveTo(32 + sg * 24, 18, 32 + sg * 22, 7); c.stroke(); }
+    c.fillStyle = "rgba(255,255,255,0.45)"; c.beginPath(); c.ellipse(24, 17, 5, 2.2, -0.6, 0, TAU); c.fill();
+    c.strokeStyle = "rgba(40,50,60,0.7)"; c.lineWidth = 1.4; c.beginPath(); c.moveTo(32, 10); c.lineTo(32, 27); c.stroke();
+    // runas do Olho de Odin: testa, bochechas e pescoço
+    if (olho) {
+        c.save(); c.globalCompositeOperation = "lighter"; c.lineCap = "round";
+        const tr = [[[32, 33.5], [32, 36.5]], [[29, 34.5], [32, 33.6], [35, 34.5]], [[19, 41], [21, 47]], [[19, 44], [22, 44.5]], [[45, 41], [43, 47]], [[45, 44], [42, 44.5]], [[28, 52], [32, 55], [36, 52]], [[32, 55], [32, 60]]];
+        for (const [lw, al] of [[3.2, 0.2 * pulso], [1.1, 0.95 * pulso]]) { c.lineWidth = lw; c.strokeStyle = "rgba(110,245,255," + al + ")"; for (const t of tr) { c.beginPath(); t.forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.stroke(); } }
+        c.restore();
+    }
+}
+// Retrato do herói (HUD e inventário): rosto grande com pele, barba/cabelo e olhos da raça. Com o Olho equipado: olho dourado com estrela, olho azul e runas ciano.
+function desenharRetratoHeroi(c, x, y, s) {
+    const vis = visRaca(), olho = !!(jogadorAtual.equip && jogadorAtual.equip.olho), rar = COR_RARIDADE[jogadorAtual.raridade] || "#b08a30", pulso = 0.65 + Math.sin(T * 0.004) * 0.25;
+    c.save(); c.translate(x, y); c.scale(s / 64, s / 64);
+    c.beginPath(); c.roundRect ? c.roundRect(0, 0, 64, 64, 8) : c.rect(0, 0, 64, 64); c.clip();
+    const bg = c.createLinearGradient(0, 0, 0, 64); bg.addColorStop(0, "#1b2434"); bg.addColorStop(1, "#0b0f16"); c.fillStyle = bg; c.fillRect(0, 0, 64, 64);
+    if (vis.aura) { const g = c.createRadialGradient(32, 34, 6, 32, 34, 36); g.addColorStop(0, vis.aura + "55"); g.addColorStop(1, vis.aura + "00"); c.fillStyle = g; c.fillRect(0, 0, 64, 64); }
+    c.lineJoin = "round"; c.lineCap = "round"; const OUT = "rgba(14,10,8,0.9)";
+    // gola de aço e pescoço
+    c.fillStyle = vis.sombra; c.fillRect(26, 46, 12, 12);
+    const gg = c.createLinearGradient(0, 52, 0, 64); gg.addColorStop(0, "#c9d3dc"); gg.addColorStop(1, "#5e6a76"); c.fillStyle = gg; c.strokeStyle = OUT; c.lineWidth = 1.4;
+    c.beginPath(); c.ellipse(32, 66, 30, 13, 0, Math.PI, TAU); c.fill(); c.stroke();
+    c.strokeStyle = "#e0a93f"; c.lineWidth = 1.6; c.beginPath(); c.ellipse(32, 66, 30, 13, 0, Math.PI * 1.08, Math.PI * 1.92); c.stroke();
+    desenharCabecaFrente(c, vis, olho, pulso);
+    c.restore();
+    c.save(); c.translate(x, y); c.scale(s / 64, s / 64); c.strokeStyle = rar; c.lineWidth = 2.4; c.beginPath(); c.roundRect ? c.roundRect(1, 1, 62, 62, 8) : c.rect(1, 1, 62, 62); c.stroke(); c.restore();
+}
+
+// Com o Olho de Odin equipado: runas ciano brilham na capa, no peito, nos ombros e no elmo; o elmo mostra um olho dourado com estrela e um azul.
+function desenharRunasOlho(c, r, sway, fl) {
+    const pulso = 0.62 + Math.sin(T * 0.004) * 0.22;
+    const tracos = [
+        [[-r * 0.6, 0], [r * 0.45, 0]],
+        [[-r * 0.2, 0], [-r * 0.2, -r * 0.55], [r * 0.1, -r * 0.55]], [[-r * 0.2, 0], [-r * 0.2, r * 0.55], [r * 0.1, r * 0.55]],
+        [[r * 0.15, 0], [r * 0.15, -r * 0.3]], [[r * 0.15, 0], [r * 0.15, r * 0.3]],
+        [[-r * 0.5, 0], [-r * 2.05, sway * 0.5]], [[-r * 1.0, sway * 0.25], [-r * 1.2, -r * 0.4 + sway * 0.3], [-r * 1.5, -r * 0.4 + sway * 0.4]], [[-r * 1.0, sway * 0.25], [-r * 1.2, r * 0.4 + sway * 0.3], [-r * 1.5, r * 0.4 + sway * 0.4]],
+        [[-r * 1.6, sway * 0.4], [-r * 1.75, -r * 0.25 + sway * 0.4]], [[-r * 1.6, sway * 0.4], [-r * 1.75, r * 0.25 + sway * 0.4]],
+        [[-3, -r * 0.88], [-1, -r * 0.88 - 2.6], [1, -r * 0.88 + 1], [3, -r * 0.88 - 2]], [[-3, r * 0.88], [-1, r * 0.88 + 2.6], [1, r * 0.88 - 1], [3, r * 0.88 + 2]],
+        [[-7.5, 0], [6, 0]]
+    ];
+    c.save(); c.globalCompositeOperation = "lighter"; c.lineCap = "round"; c.lineJoin = "miter";
+    for (const [lw, al] of [[4, 0.18 * pulso], [1.5, 0.95 * pulso]]) {
+        c.lineWidth = lw; c.strokeStyle = (fl ? "rgba(255,255,255," : "rgba(110,245,255,") + al + ")";
+        for (const t of tracos) { c.beginPath(); t.forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.stroke(); }
+    }
+    c.restore();
+    c.save(); c.globalCompositeOperation = "lighter"; const gg = c.createRadialGradient(4, 0, 1, 4, 0, 11); gg.addColorStop(0, "rgba(255,230,150," + (0.35 * pulso) + ")"); gg.addColorStop(1, "rgba(255,230,150,0)"); c.fillStyle = gg; c.beginPath(); c.arc(4, 0, 11, 0, TAU); c.fill(); c.restore();
 }
 
 // --- HERÓI COM SPRITES (andar em 6 direções + parado; com e sem o Olho de Odin) ---
@@ -5514,36 +5705,63 @@ function usarTerremoto() {
 }
 
 // --- CATACLISMO CELESTIAL (C, só Aesir): tempestade de raios por toda a área ---
+let cataFx = { t: 0, flash: 0 };   // tempestade na tela: escurece o céu e pisca a cada raio
 function usarCataclismo() {
     if (!(S.aesir || S.todasHab) || !S.mjEquip) { aviso("O Cataclismo Celestial exige sangue Aesir e o Mjölnir equipado", "#8a98a6"); return; }
     if (!temHab("mj_cata")) { aviso2("mj_cata", "o Cataclismo"); return; }
     if (P.cataCd > 0 || P.cataT > 0) return;
     P.cataCd = 40 * S.mjCd;
     P.cataT = 1.4;
-    P.dashInv = Math.max(P.dashInv, 2.4);
+    P.dashInv = Math.max(P.dashInv, 4.2);
     const bonus = 1 + 0.12 * P.cargas;
     P.cargas = 0;
     aviso("Cataclismo Celestial!", "#f1c40f", 3);
-    sfx("roar");
-    anel(P.x, P.y, 120, "#f1c40f", 0.8);
-    for (let i = 0; i < 14; i++) {
-        agendar(1.2 + i * 0.12, () => {
-            const vivos = inimigos.filter(e => !e.dead && Math.hypot(e.x - P.x, e.y - P.y) < 560);
-            let x, y;
-            if (vivos.length) { const e = vivos[Math.floor(Math.random() * vivos.length)]; x = e.x + rand(-14, 14); y = e.y + rand(-14, 14); }
-            else { const a = rand(0, TAU), d = rand(60, 320); x = P.x + Math.cos(a) * d; y = P.y + Math.sin(a) * d; }
-            raios.push({ x1: x + rand(-30, 30), y1: y - 300, x2: x, y2: y, life: 0.32 });
-            anel(x, y, 78, "#fff2c0", 0.35);
-            burst(x, y, "#ffe9a0", 10, 220, 0.5);
-            shake = Math.max(shake, 12);
+    sfx("roar"); sfx("bless");
+    cataFx.t = 4.2; shake = Math.max(shake, 8);
+    anel(P.x, P.y, 160, "#f1c40f", 0.9); anel(P.x, P.y, 260, "#fff2c0", 1.1); burst(P.x, P.y, "#ffe9a0", 40, 340, 1);
+    const RAIOS = 26;
+    for (let i = 0; i < RAIOS; i++) {
+        agendar(1.1 + i * 0.1, () => {
+            const vivos = inimigos.filter(e => !e.dead && !e.proxy && Math.hypot(e.x - P.x, e.y - P.y) < 700);
+            let x, y, alvo = null;
+            if (vivos.length) {
+                // os primeiros raios vão nos mais fortes (chefes e elites); depois sorteia
+                vivos.sort((p, q) => (q.boss ? 3 : q.elite ? 2 : 0) + q.max / 5000 - ((p.boss ? 3 : p.elite ? 2 : 0) + p.max / 5000));
+                alvo = i < 6 ? vivos[i % vivos.length] : vivos[Math.floor(Math.random() * vivos.length)];
+                x = alvo.x + rand(-12, 12); y = alvo.y + rand(-12, 12);
+            } else { const a = rand(0, TAU), d = rand(60, 360); x = P.x + Math.cos(a) * d; y = P.y + Math.sin(a) * d; }
+            raios.push({ x1: x + rand(-40, 40), y1: y - 340, x2: x, y2: y, life: 0.4 });
+            raios.push({ x1: x + rand(-14, 14), y1: y - 340, x2: x, y2: y, life: 0.25 });
+            anel(x, y, 100, "#fff2c0", 0.4); anel(x, y, 60, "#7fb7ff", 0.3);
+            burst(x, y, "#ffe9a0", 14, 260, 0.55); burst(x, y, "#9fd0ff", 6, 160, 0.4);
+            shake = Math.max(shake, 14); cataFx.flash = 1;
             sfx("bolt");
             for (const e of inimigos) {
-                if (e.dead || Math.hypot(e.x - x, e.y - y) > 78 + e.r) continue;
-                ferirInimigo(e, 75 * S.dmg * bonus, Math.atan2(e.y - y, e.x - x), 260);
-                aplicarStun(e, 0.8);
+                if (e.dead || e.proxy || Math.hypot(e.x - x, e.y - y) > 100 + e.r) continue;
+                const k = calcDano(95 * bonus); ferirInimigo(e, k.v, Math.atan2(e.y - y, e.x - x), 260, k.crit);
+                aplicarStun(e, 1.0);
+            }
+            // o raio salta para até 2 inimigos próximos
+            if (alvo) {
+                let saltos = 0;
+                for (const e of inimigos) {
+                    if (saltos >= 2 || e.dead || e.proxy || e === alvo || Math.hypot(e.x - x, e.y - y) > 190) continue;
+                    saltos++; raios.push({ x1: x, y1: y - 10, x2: e.x, y2: e.y, life: 0.22 });
+                    const k = calcDano(38 * bonus); ferirInimigo(e, k.v, Math.atan2(e.y - y, e.x - x), 120, k.crit);
+                    burst(e.x, e.y, "#ffe9a0", 6, 160, 0.4);
+                }
             }
         });
     }
+}
+function atualizarCataFx(dt) { if (cataFx.t > 0) cataFx.t -= dt; cataFx.flash = Math.max(0, cataFx.flash - dt * 5); }
+function desenharCataFx(c) {
+    if (cataFx.t <= 0 && cataFx.flash <= 0) return;
+    const e = cataFx.t > 3.4 ? (4.2 - cataFx.t) / 0.8 : cataFx.t < 0.8 ? Math.max(0, cataFx.t / 0.8) : 1;
+    c.save();
+    c.fillStyle = "rgba(8,12,34," + (0.38 * e) + ")"; c.fillRect(0, 0, VW, VH);
+    if (cataFx.flash > 0) { c.fillStyle = "rgba(255,248,215," + (0.4 * cataFx.flash) + ")"; c.fillRect(0, 0, VW, VH); }
+    c.restore();
 }
 
 // --- DECRETO DO ALLFATHER (G, Olho etapa 3, só Aesir) ---
@@ -5625,6 +5843,7 @@ function velAtaqueExtra() { return 1 + P.velAtkX + P.furtoVel; }
 
 // --- ATUALIZAÇÃO POR QUADRO ---
 function atualizarCorvos(dt) {
+    if (P.huginAtk && P.huginAtk.t > 0) P.huginAtk.t -= dt;
     if (S.munin && P.muninPool > 0) { const h = Math.min(P.muninPool, 6 * dt); P.muninPool -= h; P.hp = Math.min(P.max, P.hp + h); }
     else if (!S.munin) P.muninPool = 0;
     if (S.hugin) {
@@ -5636,6 +5855,7 @@ function atualizarCorvos(dt) {
                 P.huginT = 2;
                 const k = calcDano(14);
                 raios.push({ x1: P.x, y1: P.y - 40, x2: alvo.x, y2: alvo.y, life: 0.22 });
+                P.huginAtk = { x: alvo.x, y: alvo.y, t: 0.45, dur: 0.45 }; burst(alvo.x, alvo.y, "#cfe6ff", 8, 140, 0.4); sfx("swing");
                 ferirInimigo(alvo, k.v, Math.atan2(alvo.y - P.y, alvo.x - P.x), 120, k.crit);
                 alvo.vuln = 4;
             } else P.huginT = 0.4;
@@ -5643,19 +5863,107 @@ function atualizarCorvos(dt) {
     }
     for (const e of inimigos) { if (e.vuln > 0) e.vuln -= dt; if (e.marca > 0) e.marca -= dt; }
 }
+// Corvos de Odin: Hugin (pensamento, prata) e Munin (memória, violeta) orbitam o herói, batem as asas e mergulham no alvo
+const _corvoPos = [];
+function corvoCor(i) { return i === 0 && S.hugin ? { c: "#d4dbe6", b: "#8d9bb0", s: "#4c5668", o: "#9fd8ff" } : { c: S.munin ? "#9a86c4" : "#5a5a66", b: S.munin ? "#6d5b96" : "#44444f", s: "#2e2640", o: S.munin ? "#d5a6ff" : "#777" }; }
+function desenharCorvo(c, x, y, ang, vel, cor, i, brilho) {
+    const f = Math.sin(T * 0.028 + i * 2), asa = f * 9, face = Math.cos(ang) >= 0 ? 1 : -1;
+    c.save(); c.translate(x, y); c.scale(1.3, 1.3);
+    // brilho do olho e da penugem
+    if (brilho > 0) { const g = c.createRadialGradient(0, 0, 2, 0, 0, 20); g.addColorStop(0, cor.o + "88"); g.addColorStop(1, cor.o + "00"); c.globalAlpha = brilho; c.fillStyle = g; c.beginPath(); c.arc(0, 0, 20, 0, TAU); c.fill(); c.globalAlpha = 1; }
+    c.scale(face, 1); c.rotate(clamp(vel * 0.0012, -0.35, 0.35) * face);
+    c.strokeStyle = "#08080d"; c.lineWidth = 1;
+    // asa de trás
+    c.fillStyle = cor.b; c.beginPath(); c.moveTo(-1, -1); c.quadraticCurveTo(-7, -9 - asa, -17, -6 - asa * 1.4); c.lineTo(-12, -2 - asa * 0.5); c.lineTo(-15, 0 - asa * 0.4); c.lineTo(-7, 1); c.closePath(); c.fill(); c.stroke();
+    // cauda em leque
+    c.fillStyle = cor.s; c.beginPath(); c.moveTo(-7, 0); c.lineTo(-16, -3); c.lineTo(-15, 0); c.lineTo(-16, 3); c.closePath(); c.fill(); c.stroke();
+    // corpo
+    c.fillStyle = cor.c; c.beginPath(); c.ellipse(0, 0, 8, 4.3, 0, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = cor.b; c.beginPath(); c.ellipse(-1, 1.5, 6, 2, 0, 0, Math.PI); c.fill();
+    // cabeça e bico
+    c.fillStyle = cor.c; c.beginPath(); c.arc(7, -1.6, 3.4, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = "#e0a93f"; c.beginPath(); c.moveTo(9.5, -2.6); c.lineTo(15, -0.8); c.lineTo(9.6, 0.2); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = cor.o; c.beginPath(); c.arc(8, -2.4, 1.1, 0, TAU); c.fill();
+    // asa da frente (bate)
+    c.fillStyle = cor.c; c.beginPath(); c.moveTo(2, -1); c.quadraticCurveTo(-2, -11 - asa * 1.2, -13, -9 - asa * 1.7); c.lineTo(-8, -4 - asa); c.lineTo(-11, -2 - asa * 0.6); c.lineTo(-4, 1); c.closePath(); c.fill(); c.stroke();
+    c.strokeStyle = "rgba(0,0,0,0.35)"; c.beginPath(); c.moveTo(-3, -3 - asa * 0.4); c.lineTo(-11, -7 - asa * 1.3); c.moveTo(-2, -2); c.lineTo(-9, -4 - asa * 0.8); c.stroke();
+    c.restore();
+}
 function desenharCorvos(c, x, y) {
-    const lista = [];
-    if (S.hugin) lista.push("#cfd6e0");
-    if (jogadorAtual.equip.munin) lista.push(S.munin ? "#8c7bb0" : "#555");
-    lista.forEach((cor, i) => {
-        const a = T * 0.003 + i * Math.PI, rx = x + Math.cos(a) * 30, ry = y - 44 + Math.sin(a * 1.3) * 6;
-        c.save(); c.translate(rx, ry); c.fillStyle = cor; c.strokeStyle = "#0b0b10"; c.lineWidth = 1;
-        const f = Math.sin(T * 0.02 + i) * 4;
-        c.beginPath(); c.ellipse(0, 0, 6, 3.5, 0, 0, TAU); c.fill(); c.stroke();
-        c.beginPath(); c.moveTo(-2, 0); c.lineTo(-9, -6 - f); c.lineTo(1, -1); c.closePath(); c.fill();
-        c.beginPath(); c.moveTo(6, -1); c.lineTo(10, 0); c.lineTo(6, 1); c.closePath(); c.fillStyle = "#e0a93f"; c.fill();
+    const corvos = [];
+    if (S.hugin) corvos.push(0);
+    if (jogadorAtual.equip.munin) corvos.push(1);
+    corvos.forEach((id, k) => {
+        const cor = corvoCor(id);
+        // órbita irregular em volta da cabeça; cada corvo gira para um lado
+        const dir = id === 0 ? 1 : -1, a = T * 0.0024 * dir + id * Math.PI, raio = 30 + Math.sin(T * 0.0017 + id) * 7;
+        let px = x + Math.cos(a) * raio, py = y - 46 + Math.sin(a) * raio * 0.34 + Math.sin(T * 0.005 + id) * 3;
+        let ang = a + dir * Math.PI / 2, vel = raio * 2.4 * dir;
+        const mer = id === 0 && P.huginAtk && P.huginAtk.t > 0 ? P.huginAtk : null;
+        if (mer) {   // mergulho no alvo e volta
+            const u = 1 - mer.t / mer.dur, q = u < 0.5 ? u * 2 : (1 - u) * 2, e = q * q * (3 - 2 * q);
+            px += (mer.x - px) * e; py += (mer.y - 10 - py) * e;
+            ang = Math.atan2(mer.y - py, mer.x - px); vel = 300;
+        }
+        // sombra no chão e rastro de penas
+        c.fillStyle = "rgba(0,0,0,0.22)"; c.beginPath(); c.ellipse(px, y + 10 + (mer ? 0 : 0), 7, 2.6, 0, 0, TAU); c.fill();
+        c.save(); c.globalAlpha = 0.28; c.fillStyle = cor.c;
+        for (let t = 1; t <= 3; t++) { const aa = a - dir * t * 0.16; c.beginPath(); c.arc(x + Math.cos(aa) * raio, y - 46 + Math.sin(aa) * raio * 0.34, 2.4 - t * 0.5, 0, TAU); c.fill(); }
         c.restore();
+        const curando = id === 1 && S.munin && P.muninPool > 0;
+        desenharCorvo(c, px, py, ang, vel, cor, id, mer ? 0.9 : curando ? 0.6 + 0.3 * Math.sin(T * 0.012) : id === 0 ? 0.28 : 0.2);
+        if (curando && Math.random() < 0.3) parts.push({ x: px, y: py + 4, vx: rand(-14, 14), vy: rand(-8, 4), life: 0.7, max: 0.7, col: "#d5a6ff", size: rand(1.5, 2.8) });
+        if (id === 1 && S.munin && P.barreira > 0) {   // barreira de Munin: asas de sombra ao redor
+            c.strokeStyle = "rgba(190,150,255," + (0.25 + 0.2 * Math.sin(T * 0.006)) + ")"; c.lineWidth = 2; c.beginPath(); c.ellipse(x, y - 14, 21, 26, 0, 0, TAU); c.stroke();
+        }
     });
+}
+
+
+// --- EFEITO DO TELEPORTE: o herói se desfaz em luz, deixa um rastro e se refaz no destino ---
+let tpFx = [];
+function efeitoTeleporte(x0, y0, x1, y1, cor) {
+    tpFx.push({ x0, y0, x1, y1, t: 0, cor: cor || "#e0a93f" });
+    for (let i = 0; i < 26; i++) { const a = rand(0, TAU), r = rand(18, 70); parts.push({ x: x0 + Math.cos(a) * r, y: y0 + Math.sin(a) * r * 0.6, vx: -Math.cos(a) * r * 2.2, vy: -Math.sin(a) * r * 1.3 - 30, life: 0.45, max: 0.45, col: i % 2 ? "#fff2c0" : cor, size: rand(1.6, 3.4) }); }
+    setTimeout(() => { for (let i = 0; i < 30; i++) { const a = rand(0, TAU); parts.push({ x: x1, y: y1, vx: Math.cos(a) * rand(60, 300), vy: Math.sin(a) * rand(30, 160) - rand(0, 140), life: 0.6, max: 0.6, col: i % 3 ? "#fff2c0" : cor, size: rand(1.6, 3.6) }); } }, 120);
+    anel(x0, y0, 90, cor, 0.35); setTimeout(() => { anel(x1, y1, 150, "#ffffff", 0.5); anel(x1, y1, 90, cor, 0.5); }, 120);
+}
+function atualizarTpFx(dt) { for (const f of tpFx) f.t += dt; tpFx = tpFx.filter(f => f.t < 0.9); }
+function desenharTpFx(c) {
+    for (const f of tpFx) {
+        const t = f.t, a0 = clamp(1 - t / 0.55, 0, 1), a1 = clamp(1 - Math.max(0, t - 0.12) / 0.75, 0, 1);
+        c.save();
+        // origem: anel de runas que se fecha e coluna de luz que sobe
+        if (a0 > 0) {
+            const r = 20 + 52 * a0;
+            c.save(); c.translate(f.x0, f.y0 + 6); c.scale(1, 0.5); c.rotate(t * 7);
+            c.strokeStyle = "rgba(255,240,180," + (0.8 * a0) + ")"; c.lineWidth = 3; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.stroke();
+            for (let i = 0; i < 8; i++) { const a = i / 8 * TAU; desenharRuna(c, TIPOS_RUNA[i % 4], Math.cos(a) * r, Math.sin(a) * r, 7, "rgba(255,240,180," + a0 + ")", 2); }
+            c.restore();
+            const g = c.createLinearGradient(0, f.y0 - 130, 0, f.y0 + 6); g.addColorStop(0, "rgba(255,240,180,0)"); g.addColorStop(1, "rgba(255,240,180," + (0.6 * a0) + ")");
+            c.fillStyle = g; c.fillRect(f.x0 - 10 * a0, f.y0 - 130, 20 * a0, 136);
+        }
+        // rastro luminoso entre os dois pontos, com orbes
+        const rs = clamp(1 - t / 0.4, 0, 1);
+        if (rs > 0) {
+            c.globalCompositeOperation = "lighter"; c.lineCap = "round";
+            c.strokeStyle = f.cor + "55"; c.lineWidth = 14 * rs; c.beginPath(); c.moveTo(f.x0, f.y0 - 12); c.lineTo(f.x1, f.y1 - 12); c.stroke();
+            c.strokeStyle = "rgba(255,250,220," + (0.85 * rs) + ")"; c.lineWidth = 3 * rs; c.stroke();
+            c.globalCompositeOperation = "source-over";
+        }
+        // destino: onda de luz, coluna e flash
+        if (t > 0.05 && a1 > 0) {
+            const u = 1 - a1, r = 14 + 120 * u;
+            c.save(); c.translate(f.x1, f.y1 + 6); c.scale(1, 0.5);
+            c.strokeStyle = "rgba(255,246,200," + (0.9 * a1) + ")"; c.lineWidth = 4 * a1 + 1; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.stroke();
+            c.strokeStyle = f.cor; c.globalAlpha = 0.6 * a1; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, r * 0.62, 0, TAU); c.stroke(); c.restore();
+            const g = c.createLinearGradient(0, f.y1 - 170, 0, f.y1 + 6); g.addColorStop(0, "rgba(255,246,200,0)"); g.addColorStop(1, "rgba(255,246,200," + (0.7 * a1) + ")");
+            c.fillStyle = g; c.fillRect(f.x1 - 16 * a1, f.y1 - 170, 32 * a1, 176);
+            const fl = c.createRadialGradient(f.x1, f.y1 - 14, 2, f.x1, f.y1 - 14, 60); fl.addColorStop(0, "rgba(255,255,255," + (0.8 * a1 * a1) + ")"); fl.addColorStop(1, "rgba(255,240,180,0)");
+            c.fillStyle = fl; c.beginPath(); c.arc(f.x1, f.y1 - 14, 60, 0, TAU); c.fill();
+        }
+        c.restore();
+    }
 }
 
 // --- SENTENÇA DE MÍMIR (Olho, etapa 4) e SUPRESSÃO DIVINA (Ascensão Yggdrasil) ---
@@ -5687,30 +5995,60 @@ function atualizarSupressao(dt) {
     if ((jogadorAtual.ascensao || 0) < 6) { P.supOn = false; return; }
     P.supTick = (P.supTick || 0) - dt;
     if (P.supTick > 0) return;
-    P.supTick = 0.45;
+    P.supTick = 0.45; let nb = 0;
     for (const e of inimigos) {
         if (e.dead || e.proxy) continue;
         const dx = e.x - P.x, dy = e.y - P.y;
         if (Math.hypot(dx, dy) > 340 + e.r) continue;
         const dm = calcDano(10);
         ferirInimigo(e, dm.v, Math.atan2(dy, dx), 30, dm.crit);
+        burst(e.x, e.y, "#ffe9a0", 5, 90, 0.35); if (nb++ < 6) raios.push({ x1: P.x, y1: P.y - 10, x2: e.x, y2: e.y - 6, life: 0.1 });
     }
 }
 function desenharSupressao(c, x, y) {
     if (!P.supOn) return;
-    const p = 0.5 + 0.5 * Math.sin(T * 0.006);
+    const R = 340, p = 0.5 + 0.5 * Math.sin(T * 0.006), gi = T * 0.0005;
     c.save();
-    const g = c.createRadialGradient(x, y, 40, x, y, 340);
-    g.addColorStop(0, "rgba(255,226,140,0)"); g.addColorStop(0.85, "rgba(255,226,140," + (0.10 + 0.08 * p) + ")"); g.addColorStop(1, "rgba(255,226,140,0)");
-    c.fillStyle = g; c.beginPath(); c.arc(x, y, 340, 0, TAU); c.fill();
-    c.strokeStyle = "rgba(255,236,170," + (0.45 + 0.3 * p) + ")"; c.lineWidth = 2; c.beginPath(); c.arc(x, y, 330 + p * 8, 0, TAU); c.stroke();
+    // luz do campo, mais forte na borda
+    const g = c.createRadialGradient(x, y, 30, x, y, R);
+    g.addColorStop(0, "rgba(255,226,140,0.08)"); g.addColorStop(0.75, "rgba(255,226,140," + (0.12 + 0.06 * p) + ")"); g.addColorStop(0.95, "rgba(255,236,170," + (0.3 + 0.12 * p) + ")"); g.addColorStop(1, "rgba(255,226,140,0)");
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, R, 0, TAU); c.fill();
+    // anel externo duplo com 12 runas girando devagar
+    c.strokeStyle = "rgba(90,60,10,0.35)"; c.lineWidth = 6; c.beginPath(); c.arc(x, y, R - 4, 0, TAU); c.stroke();
+    c.strokeStyle = "rgba(255,226,130," + (0.75 + 0.25 * p) + ")"; c.lineWidth = 3; c.beginPath(); c.arc(x, y, R - 4, 0, TAU); c.stroke();
+    c.strokeStyle = "rgba(255,210,110,0.35)"; c.lineWidth = 1; c.beginPath(); c.arc(x, y, R - 20, 0, TAU); c.stroke();
+    for (let i = 0; i < 12; i++) {
+        const a = gi + i / 12 * TAU, rx = x + Math.cos(a) * (R - 12), ry = y + Math.sin(a) * (R - 12);
+        c.globalAlpha = 0.55 + 0.4 * Math.sin(T * 0.004 + i);
+        desenharRuna(c, TIPOS_RUNA[i % 4], rx + 1, ry + 1, 9, "rgba(70,45,5,0.6)", 3);
+        desenharRuna(c, TIPOS_RUNA[i % 4], rx, ry, 9, "#fff0b0", 2.4);
+    }
+    c.globalAlpha = 1;
+    // anel interno tracejado em sentido contrário
+    c.save(); c.translate(x, y); c.rotate(-gi * 2.2); c.setLineDash([14, 10]); c.strokeStyle = "rgba(255,226,130,0.65)"; c.lineWidth = 2.4; c.beginPath(); c.arc(0, 0, R * 0.55, 0, TAU); c.stroke(); c.setLineDash([]);
+    // estrela de oito pontas no centro
+    c.strokeStyle = "rgba(255,226,140,0.3)"; c.lineWidth = 1.4; c.beginPath();
+    for (let i = 0; i < 8; i++) { const a = i / 8 * TAU; c.moveTo(Math.cos(a) * 24, Math.sin(a) * 24); c.lineTo(Math.cos(a) * R * 0.55, Math.sin(a) * R * 0.55); }
+    c.stroke(); c.restore();
+    // pulso que sai do herói a cada golpe da aura
+    const ciclo = 0.45, fase = 1 - clamp((P.supTick || 0) / ciclo, 0, 1);
+    c.strokeStyle = "rgba(255,244,190," + (0.55 * (1 - fase)) + ")"; c.lineWidth = 3 + 4 * (1 - fase); c.beginPath(); c.arc(x, y, 20 + fase * (R - 20), 0, TAU); c.stroke();
+    // raios de luz subindo do chão
+    c.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 9; i++) {
+        const a = i * 2.3 + gi * 3, r = (0.35 + ((i * 0.37 + T * 0.00012) % 0.6)) * R, bx = x + Math.cos(a) * r, by = y + Math.sin(a) * r, h = 22 + 18 * Math.sin(T * 0.004 + i);
+        const gr = c.createLinearGradient(bx, by, bx, by - h); gr.addColorStop(0, "rgba(255,226,140,0.5)"); gr.addColorStop(1, "rgba(255,226,140,0)");
+        c.fillStyle = gr; c.fillRect(bx - 1.4, by - h, 2.8, h);
+    }
     c.restore();
 }
+
 function atualizarHabilidades(dt) {
     olhoTick(dt);
     if (S.cdr > 0) { const x = dt * S.cdr / (1 - S.cdr); for (const k of ["tpCd", "valCd", "decretoCd", "cataCd", "terrCd", "mjCd", "sentCd", "gungCd", "dashCd", "runaCd"]) if (P[k] > 0) P[k] -= x; }
-    atualizarSupressao(dt);
+    atualizarSupressao(dt); atualizarTpFx(dt);
     atualizarCorvos(dt); atualizarValhalla(dt); P.gungCd -= dt; P.valCd -= dt;
+    atualizarCataFx(dt);
     P.terrCd -= dt; P.cataCd -= dt; P.decretoCd -= dt; P.resCd -= dt; P.cataT -= dt;
     P.semInimigoT += dt;
     const bm = barreiraMax();
@@ -5732,6 +6070,10 @@ function atualizarHabilidades(dt) {
 // --- DESENHO ---
 function desenharOlhoJogador(c, x, y) {
     if (!S.olho) return;
+    if (typeof CORPO_ATIVO !== "undefined" && CORPO_ATIVO) {   // o Olho agora aparece no rosto; só os pontos de Verdadeiro ficam acima da cabeça
+        for (let i = 0; i < P.stacksVerdadeiro; i++) { c.fillStyle = "#ffd36a"; c.beginPath(); c.arc(x - 10 + i * 5, y - 78, 1.8, 0, TAU); c.fill(); }
+        return;
+    }
     if (heroiSprite() === "plB") {   // a aura dourada já faz parte do sprite
         for (let i = 0; i < P.stacksVerdadeiro; i++) { c.fillStyle = "#ffd36a"; c.beginPath(); c.arc(x - 10 + i * 5, y - 62, 1.8, 0, TAU); c.fill(); }
         return;
@@ -5767,6 +6109,9 @@ function desenharAuraJogador(c, x, y) {
         const k = 1 - P.cataT / 1.4;
         c.strokeStyle = "rgba(241,196,15," + (0.4 + 0.5 * k) + ")"; c.lineWidth = 3;
         c.beginPath(); c.arc(x, y, 30 + 24 * (1 - k), 0, TAU); c.stroke();
+        c.save(); c.translate(x, y + 8); c.scale(1, 0.5); c.rotate(T * 0.004);
+        c.strokeStyle = "rgba(255,246,200," + (0.5 + 0.4 * k) + ")"; c.lineWidth = 2; c.setLineDash([12, 8]); c.beginPath(); c.arc(0, 0, 70 + 40 * k, 0, TAU); c.stroke(); c.restore();
+        c.fillStyle = "rgba(255,240,170," + (0.12 + 0.2 * k) + ")"; c.fillRect(x - 6 - 10 * k, y - 220, 12 + 20 * k, 220);   // coluna de luz
     }
 }
 
@@ -5806,17 +6151,23 @@ function lancarGungnir() {
     aviso("Lançamento Divino de Gungnir", "#ffe9a0", 2);
 }
 
-// --- VALHALLA: 4 Einherjar imortais por 15 s (Aesir com o Olho, etapa 2 ou mais) ---
+// --- VALHALLA: 4 Einherjar imortais por 15 s (Aesir com o Olho, etapa 2 ou mais).
+// Na última ascensão disponível, em vez dos guerreiros descem 4 Valquírias: voam, atacam de longe com lanças de luz e dão mais dano.
 const VAL_DUR = 15, VAL_CD = 120;
 let einherjar = [];
+function valquirias() { return (jogadorAtual.ascensao || 0) >= ASCENSOES.length; }
 function usarValhalla() {
     if (!S.habOlho || S.habEt < 2) { aviso("Valhalla exige sangue Aesir e a etapa 2 do Olho de Odin", "#8a98a6"); return; }
     if (!temHab("p_val")) { aviso2("p_val", "o Valhalla"); return; }
     if (P.valCd > 0 || P.valT > 0) return;
     P.valCd = VAL_CD; P.valT = VAL_DUR;
-    einherjar = [0, 1, 2, 3].map(i => ({ x: P.x + Math.cos(i * TAU / 4) * 70, y: P.y + Math.sin(i * TAU / 4) * 70, cd: 0, i }));
+    const vq = valquirias();
+    einherjar = [0, 1, 2, 3].map(i => ({ x: P.x + Math.cos(i * TAU / 4) * 70, y: P.y + Math.sin(i * TAU / 4) * 70, cd: 0, i, vq, nasc: 0, ang: 0, alt: vq ? 40 : 0 }));
     anel(P.x, P.y, 160, "#ffe08a", 0.8); burst(P.x, P.y, "#ffe08a", 40, 300, 0.9); sfx("bless");
-    aviso("Valhalla se abre: os Einherjar respondem ao chamado!", "#ffe9a0", 3.5);
+    if (vq) {
+        anel(P.x, P.y, 260, "#ffffff", 0.7); burst(P.x, P.y - 30, "#fff2c0", 30, 220, 1.2); shake = Math.max(shake, 8); sfx("rune");
+        aviso("Valhalla se abre: as Valquírias descem do céu!", "#ffe9a0", 3.5);
+    } else aviso("Valhalla se abre: os Einherjar respondem ao chamado!", "#ffe9a0", 3.5);
 }
 function alvoInimigo(e) {
     _mpAlvoRemoto = null;
@@ -5833,9 +6184,10 @@ function alvoInimigoBase(e) {
 function atualizarValhalla(dt) {
     if (P.valT <= 0) { if (einherjar.length) einherjar = []; return; }
     P.valT -= dt;
-    if (P.valT <= 0) { einherjar = []; aviso("Os Einherjar retornam a Valhalla", "#ffe9a0", 2.5); return; }
+    if (P.valT <= 0) { const vq = einherjar.length && einherjar[0].vq; einherjar = []; aviso(vq ? "As Valquírias voltam aos céus de Valhalla" : "Os Einherjar retornam a Valhalla", "#ffe9a0", 2.5); return; }
     for (const h of einherjar) {
         h.cd -= dt;
+        if (h.vq) { atualizarValquiria(h, dt); continue; }
         let alvo = null, bd = 420;
         for (const e of inimigos) { if (e.dead) continue; const d = Math.hypot(e.x - h.x, e.y - h.y); if (d < bd) { bd = d; alvo = e; } }
         let tx = P.x + Math.cos(h.i * TAU / 4 + T * 0.001) * 80, ty = P.y + Math.sin(h.i * TAU / 4 + T * 0.001) * 80;
@@ -5852,12 +6204,76 @@ function atualizarValhalla(dt) {
         }
     }
 }
+function atualizarValquiria(h, dt) {
+    h.nasc += dt; h.alt = 30 + Math.sin(T * 0.004 + h.i * 1.7) * 6;
+    let alvo = null, bd = 520;
+    for (const e of inimigos) { if (e.dead || e.proxy) continue; const d = Math.hypot(e.x - h.x, e.y - h.y); if (d < bd) { bd = d; alvo = e; } }
+    // fica em formação no ar, atrás e ao lado do herói, e se aproxima um pouco do alvo para lançar
+    let tx = P.x + Math.cos(h.i * TAU / 4 + T * 0.0012) * 90, ty = P.y + Math.sin(h.i * TAU / 4 + T * 0.0012) * 90;
+    if (alvo && Math.hypot(alvo.x - P.x, alvo.y - P.y) < 560) { const a = Math.atan2(alvo.y - P.y, alvo.x - P.x) + (h.i - 1.5) * 0.5; tx = alvo.x - Math.cos(a) * 170; ty = alvo.y - Math.sin(a) * 170; h.ang = Math.atan2(alvo.y - h.y, alvo.x - h.x); }
+    const dx = tx - h.x, dy = ty - h.y, d = Math.hypot(dx, dy) || 1;
+    if (d > 14) { h.x += dx / d * Math.min(d, 330 * dt); h.y += dy / d * Math.min(d, 330 * dt); }
+    if (Math.random() < dt * 14) parts.push({ x: h.x + rand(-8, 8), y: h.y + rand(-4, 8), vx: rand(-14, 14), vy: rand(6, 26), life: 0.8, max: 0.8, col: "#fff2c0", size: rand(1.3, 2.6) });
+    if (alvo && h.cd <= 0) {
+        h.cd = 0.8;
+        const k = calcDano(34);
+        raios.push({ x1: h.x, y1: h.y - 30, x2: alvo.x, y2: alvo.y, life: 0.2 });
+        ferirInimigo(alvo, k.v, Math.atan2(alvo.y - h.y, alvo.x - h.x), 220, k.crit);
+        for (const e of inimigos) { if (e.dead || e === alvo || Math.hypot(e.x - alvo.x, e.y - alvo.y) > 70 + e.r) continue; const q = calcDano(14); ferirInimigo(e, q.v, Math.atan2(e.y - alvo.y, e.x - alvo.x), 140, q.crit); }
+        anel(alvo.x, alvo.y, 70, "#fff2c0", 0.3); burst(alvo.x, alvo.y, "#ffe9a0", 10, 170, 0.45); sfx("bolt");
+    }
+}
+function desenharValquiria(c, h, a) {
+    const flap = Math.sin(T * 0.012 + h.i * 1.3), olhaDir = Math.cos(h.ang) >= 0 ? 1 : -1, y = -h.alt;
+    c.save(); c.translate(h.x, h.y);
+    // sombra no chão e coluna de luz do chamado (some em 1,2 s)
+    c.globalAlpha = 0.28 * a; c.fillStyle = "#000"; c.beginPath(); c.ellipse(0, 4, 13 - flap, 5, 0, 0, TAU); c.fill();
+    if (h.nasc < 1.2) { const u = 1 - h.nasc / 1.2; const g = c.createLinearGradient(0, y - 220, 0, 4); g.addColorStop(0, "rgba(255,244,190,0)"); g.addColorStop(1, "rgba(255,244,190," + (0.55 * u) + ")"); c.globalAlpha = a; c.fillStyle = g; c.fillRect(-16 * u - 4, y - 220, (16 * u + 4) * 2, 224); }
+    c.globalAlpha = 0.95 * a;
+    const halo = c.createRadialGradient(0, y - 12, 2, 0, y - 12, 46); halo.addColorStop(0, "rgba(255,240,170,0.5)"); halo.addColorStop(1, "rgba(255,240,170,0)");
+    c.fillStyle = halo; c.beginPath(); c.arc(0, y - 12, 46, 0, TAU); c.fill();
+    c.translate(0, y); c.scale(olhaDir, 1);
+    c.strokeStyle = "#8a6a2a"; c.lineWidth = 1.2;
+    // asas grandes de penas
+    for (const lado of [-1, 1]) {
+        c.save(); c.scale(lado, 1); c.rotate(-0.15 + flap * 0.35);
+        for (let i = 0; i < 6; i++) {
+            const ang = -0.9 - i * 0.28, len = 34 - i * 2.2;
+            c.fillStyle = i % 2 ? "#fff6d8" : "#ffffff";
+            c.beginPath(); c.moveTo(4, -12); c.quadraticCurveTo(4 + Math.cos(ang) * len * 0.6, -12 + Math.sin(ang) * len * 0.9 - 6, 4 + Math.cos(ang) * len, -12 + Math.sin(ang) * len + 10 + i * 3); c.quadraticCurveTo(4 + Math.cos(ang) * len * 0.5, -6 + i * 2, 4, -8); c.closePath(); c.fill(); c.stroke();
+        }
+        c.restore();
+    }
+    // saia e armadura dourada
+    c.fillStyle = "#e8eef4"; c.beginPath(); c.moveTo(-7, -12); c.quadraticCurveTo(-11, 2, -6, 14); c.lineTo(6, 14); c.quadraticCurveTo(11, 2, 7, -12); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = "#e0b840"; c.beginPath(); c.moveTo(-7, -14); c.lineTo(7, -14); c.lineTo(6, -2); c.lineTo(-6, -2); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = "#c79a30"; c.beginPath(); c.ellipse(-8, -14, 4, 3, -0.4, 0, TAU); c.fill(); c.stroke(); c.beginPath(); c.ellipse(8, -14, 4, 3, 0.4, 0, TAU); c.fill(); c.stroke();
+    // cabeça com elmo alado e cabelo claro
+    c.fillStyle = "#f0d2b2"; c.beginPath(); c.arc(0, -22, 5.6, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = "#f3d98a"; c.beginPath(); c.moveTo(-6, -22); c.quadraticCurveTo(-11, -12, -8, -2); c.lineTo(-4, -18); c.closePath(); c.fill();
+    c.fillStyle = "#e0b840"; c.beginPath(); c.arc(0, -24, 6, Math.PI, 0); c.fill(); c.stroke();
+    c.fillStyle = "#fff"; c.beginPath(); c.moveTo(-5, -26); c.quadraticCurveTo(-13, -30, -12, -22); c.quadraticCurveTo(-8, -26, -5, -24); c.closePath(); c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(5, -26); c.quadraticCurveTo(13, -30, 12, -22); c.quadraticCurveTo(8, -26, 5, -24); c.closePath(); c.fill(); c.stroke();
+    // lança de luz
+    const lh = (h.cd > 0.55 ? (h.cd - 0.55) / 0.25 : 0) * 9;
+    c.rotate(h.ang * olhaDir - (olhaDir > 0 ? 0 : -Math.PI) * 0 - 0.7 * 0);
+    c.restore();
+    c.save(); c.translate(h.x, h.y + y); c.globalAlpha = 0.95 * a;
+    c.strokeStyle = "#fff0b0"; c.lineWidth = 2.6; c.lineCap = "round";
+    const sx = 12 * olhaDir, ex = sx + Math.cos(h.ang) * (26 + lh), ey = -8 + Math.sin(h.ang) * (26 + lh) * 0.8;
+    c.beginPath(); c.moveTo(sx - Math.cos(h.ang) * 8, -8 - Math.sin(h.ang) * 6); c.lineTo(ex, ey); c.stroke();
+    c.fillStyle = "#ffffff"; c.beginPath(); c.arc(ex, ey, 2.8, 0, TAU); c.fill();
+    const gl = c.createRadialGradient(ex, ey, 1, ex, ey, 14); gl.addColorStop(0, "rgba(255,244,190,0.9)"); gl.addColorStop(1, "rgba(255,244,190,0)"); c.fillStyle = gl; c.beginPath(); c.arc(ex, ey, 14, 0, TAU); c.fill();
+    c.restore();
+}
 function desenharValhalla(c) {
     if (P.valT <= 0) return;
     const a = Math.min(1, P.valT / 1.5);
     c.save(); c.globalAlpha = 0.5 * a; c.strokeStyle = "#ffe08a"; c.lineWidth = 3;
     c.beginPath(); c.ellipse(P.x, P.y + 8, 100 + Math.sin(T * 0.01) * 4, 48, 0, 0, TAU); c.stroke(); c.restore();
+    if (einherjar.length && einherjar[0].vq) { c.save(); c.translate(P.x, P.y + 8); c.scale(1, 0.48); c.rotate(T * 0.0007); c.strokeStyle = "rgba(255,246,200," + (0.45 * a) + ")"; c.lineWidth = 2; c.setLineDash([10, 8]); c.beginPath(); c.arc(0, 0, 130, 0, TAU); c.stroke(); c.restore(); }
     for (const h of einherjar) {
+        if (h.vq) { desenharValquiria(c, h, a); continue; }
         c.save(); c.translate(h.x, h.y); c.globalAlpha = 0.85 * a;
         const g = c.createRadialGradient(0, -14, 2, 0, -14, 34); g.addColorStop(0, "rgba(255,226,140,0.45)"); g.addColorStop(1, "rgba(255,226,140,0)");
         c.fillStyle = g; c.beginPath(); c.arc(0, -14, 34, 0, TAU); c.fill();
@@ -6015,7 +6431,7 @@ const NOS_PERS = [
     { id: "investida", nome: "Passo Veloz", desc: "A investida recarrega 4% mais rápido por nível.", max: 5, custo: 1 },
     { id: "vampiro", nome: "Sede de Sangue", desc: "Recupera 1% do dano causado como vida, por nível.", max: 5, custo: 2, req: ["vigor", 2] },
     { id: "p_tp", nome: "Habilidade: Teleporte (T)", desc: "Desbloqueia o teleporte do Olho de Odin (Aesir com o Olho) e o teleporte pelo mapa.", max: 1, custo: 2 },
-    { id: "p_val", nome: "Habilidade: Valhalla (B)", desc: "Desbloqueia os Einherjar (Aesir, Olho na etapa 2 ou mais).", max: 1, custo: 3, req: ["p_tp", 1] },
+    { id: "p_val", nome: "Habilidade: Valhalla (B)", desc: "Desbloqueia os Einherjar (Aesir, Olho na etapa 2 ou mais). Na última ascensão disponível, em vez dos guerreiros descem 4 Valquírias que voam e lançam lanças de luz.", max: 1, custo: 3, req: ["p_tp", 1] },
     { id: "p_dec", nome: "Habilidade: Decreto (V)", desc: "Desbloqueia o Decreto de Odin (Aesir, Olho na etapa 3).", max: 1, custo: 4, req: ["p_val", 1] }
 ];
 const NOS_ARMA_BASE = [
@@ -6983,13 +7399,13 @@ function mapaClique(ev) {
     for (const m of marcadoresMapa()) { const d = Math.hypot(m.x - wx, m.y - wy); if (d < bd) { bd = d; melhor = m; } }
     if (melhor) { wx = melhor.x; wy = melhor.y + (melhor.tipo === "portal" || melhor.tipo === "caverna" ? 70 : 50); }
     fecharPainel();
-    burst(P.x, P.y, "#e0a93f", 18, 220, 0.6); anel(P.x, P.y, 60, "#e0a93f", 0.4);
+    const ox = P.x, oy = P.y;
     P.x = wx; P.y = wy; P.kx = 0; P.ky = 0;
     limitarAoMapa(P, P.r + 6); resolverColisoes(P, P.r);
     P.tpCd = MAPA_CD; P.inv = Math.max(P.inv, 0.8);
     atualizarCamera();
-    burst(P.x, P.y, "#e0a93f", 18, 220, 0.6); anel(P.x, P.y, 60, "#e0a93f", 0.4);
-    sfx("dash");
+    efeitoTeleporte(ox, oy, P.x, P.y); shake = Math.max(shake, 5);
+    sfx("tp");
     aviso("Teleportado" + (melhor ? " para " + melhor.nome : ""), "#f2d27a", 2.5);
 }
 function mapaMover(ev) {
@@ -7790,7 +8206,7 @@ function evitarPrisao(dt, v) {
 }
 
 function superficieEm(x, y) {
-    if (mapaAtual !== "Midgard_Aberto") return "pedra";
+    if (mapaAtual !== "Midgard_Aberto" || _bossClima > 0.5) return "pedra";
     if (naVila(x, y)) {
         for (const o of objetosMundoAberto) if (o.type === "house" && Math.abs(x - o.x) < o.w * 0.75 && y > o.y - o.h * 0.5 && y < o.y + 70) return "madeira";
     }
@@ -8130,16 +8546,19 @@ function atualizarClima(dt) {
 }
 
 // Intensidade do clima na posição do jogador (Svartalfheim: forte na Forja, leve no resto)
+let _bossClima = 0;   // 0 = clima normal, 1 = luta de chefe (sem neve, chuva nem vento)
+function bossLutando() { return inimigos.some(e => (e.boss || e.mini) && !e.dead && !e.proxy && Math.hypot(e.x - P.x, e.y - P.y) < 900); }
 function climaAtual() {
     if (mapaAtual !== "Midgard_Aberto" || CONFIG.clima === "off") return { tipo: "limpo", int: 0 };
-    let i = clima.int;
+    _bossClima += ((bossLutando() ? 1 : 0) - _bossClima) * 0.04;
+    let i = clima.int * (1 - _bossClima);
     if (clima.tipo === "forja") { const reg = regiaoEm(P.x, P.y); i *= reg.id === "forja" ? 1 : reg.id === "minas" ? 0.55 : 0.3; }
     return { tipo: clima.tipo, int: i };
 }
 let _vm = 1;
 function climaVentoMul() { return _vm; }
 function calcularVentoMul() {
-    const t = clima.tipo, i = mapaAtual === "Midgard_Aberto" && CONFIG.clima !== "off" ? clima.int : 0;
+    const t = clima.tipo, i = mapaAtual === "Midgard_Aberto" && CONFIG.clima !== "off" ? clima.int * (1 - _bossClima) : 0;
     _vm = t === "nevasca" ? 1 + 1.4 * i : t === "tempestade" ? 1 + 1.8 * i : t === "chuva" ? 1 + 0.5 * i : 1;
 }
 
@@ -8761,6 +9180,548 @@ function expedHUD(c) {
 })();
 </script>
 <script>
+/* ondas.js: portal escondido (ruínas) → Sala das Ondas, 10 ondas por mundo, cada mundo mais difícil que o anterior */
+const ONDAS_TOTAL = 10;
+const ONDAS_MUNDO = {
+    midgard:      { dif: "Fácil",        nv: 1,  qtd: 0.8,  eq: "Raro",     tipos: [["draugr", 5], ["lobo", 3], ["corvo", 2], ["runico", 1]], cor: "#8fd3a0", tema: "gelo" },
+    alfheim:      { dif: "Normal",       nv: 5,  qtd: 1.0,  eq: "Épico",    tipos: [["espirito", 4], ["javali", 3], ["elfonegro", 3]], cor: "#f0d97a", tema: "luz" },
+    svartalfheim: { dif: "Difícil",      nv: 9,  qtd: 1.15, eq: "Épico",    tipos: [["morcego", 3], ["aranha", 3], ["bruxo", 2], ["golem", 2]], cor: "#ff9a55", tema: "fogo" },
+    vanaheim:     { dif: "Muito difícil", nv: 13, qtd: 1.3,  eq: "Lendário", tipos: [["afogado", 3], ["cavalomarinho", 2], ["volvac", 2], ["vanir", 3], ["espantalho", 1]], cor: "#f08fc0", tema: "luz" },
+    jotunheim:    { dif: "Extrema",      nv: 17, qtd: 1.5,  eq: "Lendário", tipos: [["lobogelo", 3], ["draugrgelo", 3], ["trol", 2], ["gigantegelo", 2], ["bruxaferro", 2]], cor: "#9fe0ff", tema: "gelo" }
+};
+let SO = null;   // estado da sala: { mundo, onda, t, vivo, fim, cfg }
+
+// Ruínas escondidas: uma por mundo, num canto afastado da cidade
+function colocarPortalOculto() {
+    if (!ONDAS_MUNDO[mundoId] || objetosMundoAberto.some(o => o.type === "portal_oculto")) return;
+    const cd = defMundo.cidade, regs = defMundo.regioes.filter(r => Math.hypot(r.x + r.w / 2 - cd.x, r.y + r.h / 2 - cd.y) > cd.r + 300);
+    let melhor = null, bd = -1;
+    for (const r of regs) { const d = Math.hypot(r.x + r.w / 2 - cd.x, r.y + r.h / 2 - cd.y); if (d > bd) { bd = d; melhor = r; } }
+    let x = melhor ? melhor.x + melhor.w * 0.5 : MUNDO_W - 400, y = melhor ? melhor.y + melhor.h * 0.5 : MUNDO_H - 400;
+    const p = typeof pontoLivreProximo === "function" ? pontoLivreProximo(x, y, 70) : null;
+    if (p) { x = p.x; y = p.y; }
+    objetosMundoAberto.push({ type: "portal_oculto", id: "po_" + mundoId, x, y });
+}
+function desenharPortalOculto(c, o) {
+    const cfg = ONDAS_MUNDO[mundoId] || ONDAS_MUNDO.midgard, achou = jogadorAtual.portaisOcultos && jogadorAtual.portaisOcultos[mundoId];
+    desenharPortalQuebrado(c, o.x, o.y, { nome: "Ruínas Antigas", cor: cfg.cor });
+    if (achou) {   // depois de investigado, o portal escondido brilha
+        const p = 0.5 + 0.5 * Math.sin(T * 0.005);
+        c.save(); c.globalCompositeOperation = "lighter";
+        const g = c.createRadialGradient(o.x - 8, o.y - 38, 4, o.x - 8, o.y - 38, 54); g.addColorStop(0, cfg.cor + "aa"); g.addColorStop(1, cfg.cor + "00");
+        c.globalAlpha = 0.5 + 0.4 * p; c.fillStyle = g; c.beginPath(); c.arc(o.x - 8, o.y - 38, 54, 0, TAU); c.fill(); c.restore();
+    }
+}
+function ondasConcluida(m) { return !!(jogadorAtual.ondas && jogadorAtual.ondas[m]); }
+
+// E sobre as ruínas: a primeira vez revela o portal escondido e leva à sala; as seguintes entram direto
+function investigarPortalOculto() {
+    if (SO || P.oculto) return;
+    const cfg = ONDAS_MUNDO[mundoId]; if (!cfg) return;
+    if (!jogadorAtual.portaisOcultos) jogadorAtual.portaisOcultos = {};
+    const primeira = !jogadorAtual.portaisOcultos[mundoId];
+    jogadorAtual.portaisOcultos[mundoId] = true;
+    P.oculto = true; P.dashInv = Math.max(P.dashInv, 2.4);
+    aviso(primeira ? "Você investigou um portal escondido!" : "O portal escondido desperta de novo...", cfg.cor, 3.2);
+    sfx("rune"); anel(P.x, P.y, 110, cfg.cor, 0.7); burst(P.x, P.y, cfg.cor, 24, 200, 0.8);
+    agendar(1.7, () => { P.oculto = false; if (typeof entrarSalaOndas === "function") entrarSalaOndas(); });
+}
+
+function entrarSalaOndas() {
+    const cfg = ONDAS_MUNDO[mundoId]; if (!cfg) return;
+    const po = objetosMundoAberto.find(o => o.type === "portal_oculto");
+    retornoCaverna = { mundo: mundoId, x: po ? po.x : P.x, y: po ? po.y + 70 : P.y };
+    jogadorAtual.mundo = mundoId; jogadorAtual.x = retornoCaverna.x; jogadorAtual.y = retornoCaverna.y;
+    const ox = P.x, oy = P.y;
+    chefeAtual = "ondas"; mapaAtual = "Interior_Caverna";
+    colisores = construirColisores(objetosCaverna, []);
+    P.x = 110; P.y = 470; P.dash = 0; P.kx = 0; P.ky = 0; teclas = {};
+    limparCombate();
+    SO = { mundo: mundoId, onda: 0, t: 3.5, vivo: false, fim: false, cfg };
+    atualizarCamera();
+    musica("caverna");
+    if (typeof efeitoTeleporte === "function") efeitoTeleporte(P.x, P.y, P.x, P.y, cfg.cor);
+    aviso("Sala das Ondas · dificuldade " + cfg.dif + " · " + ONDAS_TOTAL + " ondas", cfg.cor, 4.5);
+    salvarJogo();
+}
+function sairDasOndas() { SO = null; }
+
+function ondasAtivas() { return !!SO && mapaAtual === "Interior_Caverna" && chefeAtual === "ondas"; }
+
+function lancarOnda(n) {
+    const cfg = SO.cfg;
+    const base = Math.round((3 + n * 1.1) * cfg.qtd), nv = cfg.nv + Math.floor((n - 1) * 0.7);
+    let elites = n === 10 ? 3 : n === 7 ? 2 : n === 4 ? 1 : 0;
+    for (let i = 0; i < base + elites; i++) {
+        let x, y, t = 0;
+        do { x = rand(90, VW - 90); y = rand(100, VH - 90); t++; } while (t < 30 && Math.hypot(x - P.x, y - P.y) < 280);
+        const tipo = escolherTipo(cfg.tipos), el = i >= base;
+        const e = mkInimigo(tipo, x, y, nv + (el ? 2 : 0), el);
+        e.ondas = true; e.sitio = true;
+        burst(x, y, cfg.cor, 8, 120, 0.5);
+    }
+    SO.vivo = true; SO.alvoN = base + elites;
+    aviso("Onda " + n + " / " + ONDAS_TOTAL + (n === 10 ? " · A ÚLTIMA!" : n === 5 ? " · metade!" : ""), cfg.cor, 2.5);
+    sfx(n === 10 ? "roar" : "rune");
+}
+
+function atualizarOndas(dt) {
+    if (!SO) return;
+    if (!ondasAtivas()) { SO = null; return; }   // saiu da sala
+    if (SO.fim) return;
+    const vivos = inimigos.filter(e => !e.dead && !e.proxy).length;
+    if (!SO.vivo) {
+        SO.t -= dt;
+        if (SO.t <= 0) { SO.onda++; lancarOnda(SO.onda); }
+    } else if (vivos === 0) {
+        SO.vivo = false;
+        if (SO.onda >= ONDAS_TOTAL) { concluirOndas(); return; }
+        SO.t = 3.5; P.hp = Math.min(P.max, P.hp + P.max * 0.12);
+        aviso("Onda " + SO.onda + " vencida", "#cfe8d6", 2);
+    }
+}
+function concluirOndas() {
+    SO.fim = true;
+    const cfg = SO.cfg, primeira = !ondasConcluida(SO.mundo);
+    if (!jogadorAtual.ondas) jogadorAtual.ondas = {};
+    jogadorAtual.ondas[SO.mundo] = true;
+    anel(P.x, P.y, 220, cfg.cor, 0.9); burst(P.x, P.y, cfg.cor, 50, 320, 1.1); sfx("bless"); shake = Math.max(shake, 8);
+    aviso("Sala das Ondas concluída!", cfg.cor, 5);
+    ganharXP(cfg.nv * 120);
+    if (primeira) {
+        const it = gerarEquip(cfg.eq);
+        if (adicionarAoInventario(it)) aviso("Recompensa: " + it.nome, COR_RARIDADE[it.raridade], 5); else soltarItem(P.x, P.y, it, true);
+        darMaterial("fio", 1 + Math.floor(cfg.nv / 8));
+    }
+    checarPortais();
+    salvarJogo();
+}
+
+// Painel da sala
+function desenharHudOndas(c) {
+    if (!ondasAtivas()) return;
+    const cfg = SO.cfg, w = 260, x = VW / 2 - w / 2, y = 60;
+    c.save();
+    c.fillStyle = "rgba(8,10,16,0.72)"; c.fillRect(x, y, w, 46); c.strokeStyle = cfg.cor; c.lineWidth = 1.2; c.strokeRect(x + 0.5, y + 0.5, w - 1, 45);
+    c.textAlign = "center"; c.fillStyle = cfg.cor; c.font = "700 13px 'Alegreya Sans', sans-serif";
+    c.fillText("SALA DAS ONDAS · " + cfg.dif.toUpperCase(), VW / 2, y + 16);
+    c.fillStyle = "#eef2f6"; c.font = "700 14px 'Alegreya Sans', sans-serif";
+    const vivos = inimigos.filter(e => !e.dead && !e.proxy).length;
+    c.fillText(SO.fim ? "Concluída! Use o portal para sair" : SO.vivo ? "Onda " + SO.onda + " / " + ONDAS_TOTAL + " · inimigos: " + vivos : "Onda " + (SO.onda + 1) + " em " + Math.ceil(Math.max(0, SO.t)) + "...", VW / 2, y + 33);
+    c.fillStyle = "rgba(255,255,255,0.12)"; c.fillRect(x + 10, y + 39, w - 20, 3);
+    c.fillStyle = cfg.cor; c.fillRect(x + 10, y + 39, (w - 20) * Math.min(1, (SO.onda - (SO.vivo ? 1 : 0) + (SO.vivo && SO.alvoN ? 1 - vivos / SO.alvoN : 0)) / ONDAS_TOTAL), 3);
+    c.restore();
+}
+
+// Requisitos extras para abrir portais a partir de Jötunheim (além das missões)
+const REQ_EXTRA = {
+    jotunheim: [
+        { ok: () => ondasConcluida("jotunheim"), txt: "vencer a Sala das Ondas de Jötunheim (portal escondido)" },
+        { ok: () => !!(jogadorAtual.contadores && jogadorAtual.contadores["boss:ymir"] > 0), txt: "derrotar Ymir na caverna" },
+        { ok: () => (jogadorAtual.ascensao || 0) >= 1, txt: "fazer a Ascensão em Mímir" }
+    ]
+};
+function reqExtraPendentes(mundo) { return (REQ_EXTRA[mundo] || []).filter(r => !r.ok()); }
+</script>
+<script>
+/* corpo.js: corpo de verdade para o herói (cabeça, tronco, braços, pernas), vista de frente, de costas e de lado, com ciclo de passos.
+   Cada raça muda a pele, a barba/cabelo, o porte e as cores da roupa; o Olho de Odin muda os olhos e acende as runas. */
+const CORPO_ATIVO = true;
+const ROUPA_RACA = {
+    humano:    { couro: "#7a5233", couro2: "#4f331f", calca: "#3b3a46", capa: "#a8322a", metal: "#aeb9c4" },
+    vanir:     { couro: "#5f7a4a", couro2: "#3f5430", calca: "#4a4030", capa: "#2f7a54", metal: "#c9b27a" },
+    elfo:      { couro: "#e8e4d0", couro2: "#a8b89a", calca: "#6e8a6a", capa: "#5fa07a", metal: "#e6e0b8" },
+    anao:      { couro: "#6a2f24", couro2: "#40190f", calca: "#2e2a2a", capa: "#7a2a20", metal: "#9a8a74" },
+    gigante:   { couro: "#8a95a2", couro2: "#5a6672", calca: "#3a4452", capa: "#d9e4ee", metal: "#cfe3f2" },
+    einherjar: { couro: "#6a737d", couro2: "#454d56", calca: "#2f3640", capa: "#6a1d1a", metal: "#d3dbe2" },
+    aesir:     { couro: "#e9d9a6", couro2: "#b79a52", calca: "#f2ecd8", capa: "#f4c542", metal: "#fff1b8" }
+};
+function roupaRaca() { const r = racaAtual(); return ROUPA_RACA[r ? r.id : "humano"] || ROUPA_RACA.humano; }
+function cxRR(c, x, y, w, h, r) { r = Math.min(r, w / 2, h / 2); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+
+function desenharCorpoHeroi(c, x, y) {
+    const vis = visRaca(), rp = roupaRaca(), olho = !!(jogadorAtual.equip && jogadorAtual.equip.olho), fl = P.hitFlash > 0;
+    if (P.swing > 0) P.dirAng = P.face; else if (P.movendo) P.dirAng = P.mvang; else if (P.dirAng === undefined) P.dirAng = Math.PI / 2;
+    const sn = Math.sin(P.dirAng), cs = Math.cos(P.dirAng), vista = sn > 0.55 ? "f" : sn < -0.55 ? "b" : "s", fl2 = cs < 0 ? -1 : 1;
+    const dash = P.dash > 0, atk = P.swing > 0, mov = P.movendo || dash;
+    // fase do passo: avança com a velocidade real para os pés não "patinarem"
+    const vel = mov ? (dash ? 1.9 : 1) : 0;
+    P.cFase = (P.cFase || 0) + (mov ? 0.0135 * 16.7 * vel : 0);   // ~ por quadro
+    const ph = P.cFase, sw = mov ? Math.sin(ph) : 0, cw = mov ? Math.cos(ph) : 0;
+    const respira = Math.sin(T * 0.0032) * 0.55, bob = mov ? Math.abs(sw) * 2.1 : respira;
+    // suavizações: inclinação para a frente, balanço dos ombros e avanço no golpe
+    const alvoLean = (dash ? 0.3 : mov ? 0.07 : 0) * (vista === "s" ? fl2 : 0) , alvoSway = mov && vista !== "s" ? sw * 0.045 : 0;
+    P.cLean = (P.cLean || 0) + (alvoLean - (P.cLean || 0)) * 0.22; P.cSway = (P.cSway || 0) + (alvoSway - (P.cSway || 0)) * 0.3;
+    const golpe = atk ? Math.sin((1 - P.swing / 0.2) * Math.PI) : 0;
+    const lx = Math.cos(P.face) * 3.2 * golpe, ly = Math.sin(P.face) * 1.6 * golpe;
+    const pulso = 0.62 + Math.sin(T * 0.004) * 0.24;
+    const OUT = "rgba(12,8,6,0.9)", mira = P.face, miraCima = Math.sin(mira) < -0.3, maoDir = Math.cos(mira) >= 0 ? 1 : -1;
+    const asas = asasAtivas(), sx = vista === "s" ? 0 : maoDir * 12.5;   // ombro da arma
+    c.save(); c.translate(x + lx, y + 10 + ly); c.scale(vis.esc * 0.74, vis.esc * 0.74);
+    if (fl) c.filter = "brightness(2.5)";
+    c.lineJoin = "round"; c.lineCap = "round";
+    const branco = fl ? "#fff" : null;
+    const arma = () => { c.save(); c.translate(maoDir * (vista === "s" ? 4 : 13), -27 - bob); c.rotate(P.face); desenharEmpunhada(c, armaEfetiva(), 0); c.restore(); };
+    const traco = (pts, larg, cor, borda) => { if (borda) { c.strokeStyle = OUT; c.lineWidth = larg + 2.4; c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.stroke(); } c.strokeStyle = cor; c.lineWidth = larg; c.beginPath(); pts.forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.stroke(); };
+    const calcaCor = branco || rp.calca;
+
+    // ---------- PERNAS ----------
+    const botaXY = (px, py, ang, cor) => { c.save(); c.translate(px, py); c.rotate(ang); c.fillStyle = branco || cor; c.strokeStyle = OUT; c.lineWidth = 1.3; cxRR(c, -4.6, -3, 10.4, 7, 2.6); c.fill(); c.stroke(); c.fillStyle = "rgba(255,255,255,0.18)"; c.fillRect(-3.6, -2, 6, 1.6); c.fillStyle = "rgba(0,0,0,0.35)"; c.fillRect(-4.2, 2.4, 9.6, 1.6); c.restore(); };
+    const pernaFB = (px, i) => {
+        const f = mov ? ph + i * Math.PI : 0, lift = mov ? Math.max(0, Math.sin(f)) * 4.4 : 0, avan = mov ? Math.cos(f) * (vista === "f" ? 1.6 : -1.6) : 0;
+        c.save(); c.translate(px, -lift * 0.5);
+        const g = c.createLinearGradient(-4, 0, 4, 0); g.addColorStop(0, branco || rp.calca); g.addColorStop(1, branco || "rgba(0,0,0,0.5)");
+        c.fillStyle = branco || rp.calca; c.strokeStyle = OUT; c.lineWidth = 1.3; cxRR(c, -3.9, -21, 7.8, 17 - lift * 0.5, 2.6); c.fill(); c.stroke();
+        c.fillStyle = "rgba(0,0,0,0.22)"; c.fillRect(i ? 0.6 : 1.2, -20, 2.6, 14 - lift * 0.5);
+        c.fillStyle = branco || rp.couro2; c.strokeStyle = OUT; c.lineWidth = 1; cxRR(c, -4, -13 - lift * 0.2, 8, 3.2, 1); c.fill(); c.stroke();   // joelheira
+        c.restore();
+        botaXY(px, -lift + avan * 0.4 - 2.2, 0, "#3a2616");
+    };
+    const pernaLado = (i, tras) => {
+        const f = mov ? ph + i * Math.PI : 0, th = mov ? Math.sin(f) * (dash ? 0.95 : 0.62) : 0, dobra = mov ? Math.max(0, Math.cos(f)) * (dash ? 1.25 : 0.95) : 0;
+        const hx = 0, hy = -21, kx = hx + Math.sin(th) * 10, ky = hy + Math.cos(th) * 10, a2 = th - dobra, fx = kx + Math.sin(a2) * 10.5, fy = ky + Math.cos(a2) * 10.5;
+        const cor = branco || (tras ? rp.couro2 : calcaCor);
+        traco([[hx, hy], [kx, ky]], 7.8, cor, true); traco([[kx, ky], [fx, fy - 2.5]], 6.8, cor, true);
+        c.fillStyle = branco || rp.couro2; c.strokeStyle = OUT; c.lineWidth = 1; c.beginPath(); c.arc(kx, ky, 3.2, 0, TAU); c.fill(); c.stroke();
+        botaXY(fx + 1.2, fy - 1, -a2 * 0.5, tras ? "#2a1a0e" : "#3a2616");
+    };
+
+    // ---------- CAPA ----------
+    const capa = (sobre) => {
+        const bal = Math.sin(T * 0.006) * 1.3 + (mov ? 2.4 + Math.abs(sw) * 1.2 : 0), arr = mov ? -cs * (dash ? 7 : 3.2) : 0;
+        const g = c.createLinearGradient(0, -44, 0, -4); g.addColorStop(0, branco || rp.capa); g.addColorStop(1, branco || "rgba(0,0,0,0.6)");
+        c.fillStyle = g; c.strokeStyle = OUT; c.lineWidth = 1.4; c.beginPath();
+        if (vista === "s") { const d = -fl2; c.moveTo(d * 3, -42 - bob); c.quadraticCurveTo(d * (12 + bal + (dash ? 8 : 0)), -26, d * (15 + bal + (dash ? 10 : 0)), -5 + bal * 0.3); c.lineTo(d * 2, -9); c.closePath(); }
+        else { c.moveTo(-11, -42 - bob); c.lineTo(11, -42 - bob); c.quadraticCurveTo(15 + bal * 0.3 + arr, -22, 14 + arr * 1.4, -5 + bal * 0.4); c.lineTo(-14 + arr * 1.4, -5 - bal * 0.4); c.quadraticCurveTo(-15 + arr, -22, -11, -42 - bob); c.closePath(); }
+        c.fill(); c.stroke();
+        c.strokeStyle = "rgba(0,0,0,0.25)"; c.lineWidth = 1; if (vista !== "s") for (let k = -1; k <= 1; k++) { c.beginPath(); c.moveTo(k * 5, -40 - bob); c.lineTo(k * 6 + arr, -6); c.stroke(); }
+        if (sobre) { c.strokeStyle = "rgba(224,169,63,0.85)"; c.lineWidth = 1.1; c.beginPath(); c.moveTo(-13.5 + arr * 1.4, -5.8); c.lineTo(13.5 + arr * 1.4, -5.8); c.stroke(); }
+    };
+
+    // ---------- BRAÇOS, ESCUDO, TRONCO ----------
+    const maoSkin = (px, py) => { const g = c.createRadialGradient(px - 1, py - 1, 0.5, px, py, 4); g.addColorStop(0, branco || vis.pele); g.addColorStop(1, branco || vis.sombra); c.fillStyle = g; c.strokeStyle = OUT; c.lineWidth = 1.2; c.beginPath(); c.arc(px, py, 3.5, 0, TAU); c.fill(); c.stroke(); };
+    const bracoRet = (px, yoff, ativo) => {   // braço pendurado (frente/costas)
+        c.save(); c.translate(px, -bob);
+        const g = c.createLinearGradient(-3.4, 0, 3.4, 0); g.addColorStop(0, branco || rp.couro); g.addColorStop(1, branco || rp.couro2);
+        c.fillStyle = g; c.strokeStyle = OUT; c.lineWidth = 1.3; cxRR(c, -3.5, -41, 7, 11 + yoff * 0.5, 3); c.fill(); c.stroke();
+        c.fillStyle = branco || rp.metal; cxRR(c, -3.7, -31 + yoff * 0.5, 7.4, 6, 2); c.fill(); c.stroke();
+        c.fillStyle = "rgba(255,255,255,0.25)"; c.fillRect(-2.6, -30 + yoff * 0.5, 2, 4);
+        maoSkin(0, -23.5 + yoff);
+        c.restore();
+    };
+    const bracoAtaque = () => {   // braço da arma estendido para onde se mira
+        const hx = sx + Math.cos(P.face) * 12 * golpe + (vista === "s" ? 4 * maoDir : 0), hy = -30 - bob + Math.sin(P.face) * 8 * golpe;
+        traco([[sx, -41 - bob], [(sx + hx) / 2, (-41 - bob + hy) / 2 - 1], [hx, hy]], 6.6, branco || rp.couro, true);
+        traco([[(sx + hx) / 2, (-41 - bob + hy) / 2], [hx, hy]], 6.6, branco || rp.metal, false);
+        maoSkin(hx, hy);
+    };
+    const bracoLado = (tras) => {   // braço visto de lado, balançando ao contrário das pernas
+        const th = mov ? -Math.sin(ph + (tras ? 0 : Math.PI)) * 0.55 : 0, dobra = mov ? 0.35 + Math.max(0, th) * 0.5 : 0.1;
+        const hx0 = 0, hy0 = -41 - bob, ex = hx0 + Math.sin(th) * 9, ey = hy0 + Math.cos(th) * 9, a2 = th + dobra, mx = ex + Math.sin(a2) * 9, my = ey + Math.cos(a2) * 9;
+        traco([[hx0, hy0], [ex, ey]], 6.6, branco || (tras ? rp.couro2 : rp.couro), true);
+        traco([[ex, ey], [mx, my]], 6.2, branco || rp.metal, true);
+        maoSkin(mx, my + 1);
+    };
+    const escudo = (px) => {
+        c.save(); c.translate(px, -28 - bob);
+        const g = c.createRadialGradient(-2, -2, 1, 0, 0, 9); g.addColorStop(0, branco || "#9a6234"); g.addColorStop(1, branco || "#5e3519");
+        c.fillStyle = g; c.strokeStyle = branco || rp.metal; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, 8.6, 0, TAU); c.fill(); c.stroke();
+        c.strokeStyle = "rgba(40,22,10,0.7)"; c.lineWidth = 0.9; for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(a) * 8, Math.sin(a) * 8); c.stroke(); }
+        c.fillStyle = branco || "#e0a93f"; c.beginPath(); c.arc(0, 0, 2.5, 0, TAU); c.fill(); c.strokeStyle = OUT; c.lineWidth = 0.8; c.stroke();
+        c.restore();
+    };
+    const tronco = () => {
+        const g = c.createLinearGradient(-12, 0, 12, 0); g.addColorStop(0, branco || rp.couro); g.addColorStop(0.55, branco || rp.couro); g.addColorStop(1, branco || rp.couro2);
+        c.fillStyle = g; c.strokeStyle = OUT; c.lineWidth = 1.5;
+        const e = 1 + respira * 0.012;
+        c.beginPath(); c.moveTo(-12, -43 - bob); c.quadraticCurveTo(0, -46 - bob, 12, -43 - bob); c.lineTo(10.5 * e, -22); c.quadraticCurveTo(0, -20, -10.5 * e, -22); c.closePath(); c.fill(); c.stroke();
+        c.save(); c.clip();
+        c.strokeStyle = "rgba(20,10,6,0.42)"; c.lineWidth = 1; for (let k = 0; k < 4; k++) { const yy = -39 + k * 5 - bob * (1 - k / 4); c.beginPath(); c.moveTo(-13, yy); c.lineTo(13, yy); c.stroke(); c.strokeStyle = "rgba(255,230,190,0.12)"; c.beginPath(); c.moveTo(-13, yy - 1); c.lineTo(13, yy - 1); c.stroke(); c.strokeStyle = "rgba(20,10,6,0.42)"; }
+        c.fillStyle = "rgba(255,255,255,0.1)"; c.fillRect(-11, -43 - bob, 5, 22);
+        c.restore();
+        if (vista === "f") {
+            c.fillStyle = branco || rp.metal; c.beginPath(); c.moveTo(-6.5, -43 - bob); c.lineTo(6.5, -43 - bob); c.lineTo(4.4, -32 - bob); c.lineTo(-4.4, -32 - bob); c.closePath(); c.fill(); c.stroke();   // peitoral
+            c.strokeStyle = "rgba(0,0,0,0.3)"; c.lineWidth = 0.9; c.beginPath(); c.moveTo(0, -42 - bob); c.lineTo(0, -33 - bob); c.stroke();
+            c.strokeStyle = branco || "#2e1d10"; c.lineWidth = 1.7; c.beginPath(); c.moveTo(-9, -42 - bob); c.lineTo(5, -26); c.moveTo(9, -42 - bob); c.lineTo(-5, -26); c.stroke();   // tiras em X
+            c.fillStyle = branco || "#e0a93f"; c.beginPath(); c.arc(0, -35 - bob, 1.4, 0, TAU); c.fill();
+        }
+        c.fillStyle = branco || "#3a2616"; c.fillRect(-11, -26, 22, 4.2);
+        if (vista !== "b") { c.fillStyle = branco || "#e0a93f"; c.fillRect(-2.7, -26.7, 5.4, 5.6); c.strokeStyle = OUT; c.lineWidth = 0.8; c.strokeRect(-2.7, -26.7, 5.4, 5.6); c.fillStyle = branco || "#2e1d10"; cxRR(c, 5.5, -23, 4.5, 5.5, 1.2); c.fill(); }   // fivela e bolsinha
+        c.fillStyle = branco || rp.couro2; c.strokeStyle = OUT; c.lineWidth = 1.1; cxRR(c, -10.5, -22, 21, 8, 2); c.fill(); c.stroke();
+        c.strokeStyle = "rgba(0,0,0,0.28)"; c.beginPath(); c.moveTo(-3.5, -22); c.lineTo(-3.5, -14); c.moveTo(3.5, -22); c.lineTo(3.5, -14); c.stroke();
+    };
+    const ombreiras = () => { for (const sg of [-1, 1]) {
+        const og = c.createRadialGradient(sg * 12 - 1.5, -44 - bob, 0.5, sg * 12.5, -42 - bob, 7.5); og.addColorStop(0, branco || "#f4f8fb"); og.addColorStop(1, branco || rp.metal);
+        c.fillStyle = og; c.strokeStyle = OUT; c.lineWidth = 1.3; c.beginPath(); c.ellipse(sg * 12.5, -42 - bob, 6.6, 5.4, 0, 0, TAU); c.fill(); c.stroke();
+        c.strokeStyle = "rgba(224,169,63,0.9)"; c.lineWidth = 1; c.beginPath(); c.ellipse(sg * 12.5, -42 - bob, 4.6, 3.4, 0, 0.2, Math.PI - 0.2); c.stroke();
+        c.fillStyle = branco || "#e0a93f"; c.beginPath(); c.arc(sg * 12.5, -43.4 - bob, 0.9, 0, TAU); c.fill(); } };
+    const pescoco = () => {
+        c.fillStyle = branco || vis.sombra; c.fillRect(-3.4, -49 - bob, 6.8, 7);
+        // gola de pele
+        c.fillStyle = branco || (vis.pele === "#9fc6de" ? "#eef5fa" : "#e9e1d0"); c.strokeStyle = OUT; c.lineWidth = 1; c.beginPath(); c.ellipse(0, -44 - bob, 8.2, 3.2, 0, 0, TAU); c.fill(); c.stroke();
+        c.strokeStyle = "rgba(0,0,0,0.18)"; c.beginPath(); for (let k = -3; k <= 3; k++) { c.moveTo(k * 2.2, -46 - bob); c.lineTo(k * 2.4, -42 - bob); } c.stroke();
+    };
+    const cabeca = () => {
+        c.save(); c.translate(P.cSway * 18 * 0 + (vista === "f" ? cs * 0.8 : 0), -61 - bob + (mov ? -Math.abs(cw) * 0.3 : 0)); c.rotate(-P.cSway * 0.8); const k = 0.7; c.scale(k, k); c.translate(-32, -37);
+        if (vista === "f") desenharCabecaFrente(c, vis, olho, pulso); else if (vista === "b") cabecaCostas(c, vis); else cabecaLado(c, vis, olho, pulso, fl2);
+        c.restore();
+    };
+    const corpoSuperior = (fn) => { c.save(); c.translate(0, -22); c.rotate(P.cLean + P.cSway); c.translate(0, 22); fn(); c.restore(); };
+
+    if (miraCima) arma();
+    if (vista === "b") {
+        pernaFB(-4.6, 0); pernaFB(4.6, 1);
+        corpoSuperior(() => { tronco(); bracoRet(-14.5, mov ? sw * 3.2 : 0); if (atk && maoDir > 0) bracoAtaque(); else bracoRet(14.5, mov ? -sw * 3.2 : 0); ombreiras(); capa(true); if (asas) desenharAsasHeroi(c, vista, fl2, bob, mov, dash, fl, true); pescoco(); cabeca(); });
+    } else if (vista === "f") {
+        corpoSuperior(() => { if (asas) desenharAsasHeroi(c, vista, fl2, bob, mov, dash, fl, false); capa(false); });
+        pernaFB(-4.6, 0); pernaFB(4.6, 1);
+        corpoSuperior(() => {
+            tronco();
+            const dEsq = maoDir > 0, bAtk = () => atk ? bracoAtaque() : null;
+            if (dEsq) { bracoRet(-14.5, mov ? sw * 3.2 : 0); if (atk) bracoAtaque(); else bracoRet(14.5, mov ? -sw * 3.2 : 0); }
+            else { bracoRet(14.5, mov ? -sw * 3.2 : 0); if (atk) bracoAtaque(); else bracoRet(-14.5, mov ? sw * 3.2 : 0); }
+            ombreiras(); pescoco(); cabeca(); escudo(-maoDir * 14.5);
+        });
+    } else {
+        c.save(); c.scale(fl2, 1);
+        corpoSuperior(() => { if (asas) desenharAsasHeroi(c, vista, fl2, bob, mov, dash, fl, false); capa(false); bracoLado(true); });
+        pernaLado(1, true); pernaLado(0, false);
+        corpoSuperior(() => { tronco(); if (atk) bracoAtaque(); else bracoLado(false); ombreiras(); pescoco(); cabeca(); });
+        c.restore();
+        c.save(); c.translate(0, 0); escudo(0); c.restore();
+    }
+    if (!miraCima) arma();
+
+    // runas do Olho de Odin sobre o corpo
+    if (olho) {
+        c.save(); c.globalCompositeOperation = "lighter"; c.lineCap = "round";
+        const L = vista === "s" ? [[[0, -40 - bob], [0, -28]], [[-3, -36], [3, -36]], [[-3, -31], [3, -31]], [[-1, -18], [-1, -6]]] : [[[0, -40 - bob], [0, -28]], [[-5, -37], [0, -34], [5, -37]], [[-5, -31], [0, -28], [5, -31]], [[-14.5, -38], [-14.5, -30]], [[14.5, -38], [14.5, -30]], [[-4.6, -18], [-4.6, -7]], [[4.6, -18], [4.6, -7]], [[-4.6, -13], [-7, -17]], [[4.6, -13], [7, -17]]];
+        for (const [lw, al] of [[3.4, 0.2 * pulso], [1.2, 0.95 * pulso]]) { c.lineWidth = lw; c.strokeStyle = (fl ? "rgba(255,255,255," : "rgba(110,245,255,") + al + ")"; for (const t of L) { c.beginPath(); t.forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.stroke(); } }
+        c.restore();
+    }
+    c.filter = "none";
+    c.restore();
+}
+
+// Cabeça vista de costas (mesmas medidas do retrato: centro do rosto em (32,37))
+function cabecaCostas(c, vis) {
+    const OUT = "rgba(14,10,8,0.9)"; c.lineJoin = "round";
+    const cor = vis.cabelo || vis.barba || "#5a3a22";
+    if (vis.orelhas) { c.fillStyle = vis.pele; c.strokeStyle = OUT; c.lineWidth = 1.2; for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(32 + sg * 14, 33); c.lineTo(32 + sg * 24, 26); c.lineTo(32 + sg * 15, 42); c.closePath(); c.fill(); c.stroke(); } }
+    c.fillStyle = cor; c.strokeStyle = OUT; c.lineWidth = 1.5; c.beginPath(); c.ellipse(32, 37, 15, 16.5, 0, 0, TAU); c.fill(); c.stroke();
+    if (!vis.barba) { c.beginPath(); c.moveTo(18, 38); c.quadraticCurveTo(15, 56, 24, 62); c.lineTo(40, 62); c.quadraticCurveTo(49, 56, 46, 38); c.closePath(); c.fill(); c.stroke(); }
+    const hg = c.createLinearGradient(0, 12, 0, 34); hg.addColorStop(0, "#e6eef4"); hg.addColorStop(1, "#7d8a96");
+    c.fillStyle = hg; c.beginPath(); c.moveTo(15.5, 36); c.quadraticCurveTo(14, 12, 32, 10); c.quadraticCurveTo(50, 12, 48.5, 36); c.quadraticCurveTo(32, 32, 15.5, 36); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = "#e0a93f"; c.beginPath(); c.moveTo(15, 31); c.quadraticCurveTo(32, 27.5, 49, 31); c.lineTo(48.6, 35); c.quadraticCurveTo(32, 31.5, 15.4, 35); c.closePath(); c.fill(); c.stroke();
+    c.strokeStyle = "#f1e7cf"; c.lineWidth = 3; for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(32 + sg * 16, 22); c.quadraticCurveTo(32 + sg * 24, 18, 32 + sg * 22, 7); c.stroke(); }
+    c.strokeStyle = "rgba(40,50,60,0.7)"; c.lineWidth = 1.4; c.beginPath(); c.moveTo(32, 10); c.lineTo(32, 30); c.stroke();
+}
+// Cabeça de perfil, olhando para a direita (fl2 só decide o espelhamento no corpo)
+function cabecaLado(c, vis, olho, pulso) {
+    const OUT = "rgba(14,10,8,0.9)"; c.lineJoin = "round"; c.lineCap = "round";
+    const cor = vis.cabelo || vis.barba || "#5a3a22";
+    if (!vis.barba) { c.fillStyle = cor; c.strokeStyle = OUT; c.lineWidth = 1.3; c.beginPath(); c.moveTo(22, 30); c.quadraticCurveTo(12, 46, 20, 62); c.lineTo(34, 58); c.quadraticCurveTo(28, 44, 32, 30); c.closePath(); c.fill(); c.stroke(); }
+    // rosto
+    c.fillStyle = vis.pele; c.strokeStyle = OUT; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(24, 24); c.quadraticCurveTo(46, 22, 47, 36); c.lineTo(50.5, 41); c.lineTo(47, 43); c.quadraticCurveTo(47, 52, 38, 53); c.quadraticCurveTo(24, 54, 20, 42); c.quadraticCurveTo(17, 30, 24, 24); c.closePath(); c.fill(); c.stroke();
+    if (vis.barba) {
+        const bgn = vis.barbaG; c.fillStyle = vis.barba; c.beginPath(); c.moveTo(24, 42); c.quadraticCurveTo(22, 56 + 4 * (bgn - 1), 34, 58 + 7 * (bgn - 1)); c.quadraticCurveTo(46, 58, 47, 46); c.quadraticCurveTo(40, 46, 36, 44); c.quadraticCurveTo(30, 40, 24, 42); c.closePath(); c.fill(); c.stroke();
+    }
+    c.fillStyle = vis.orelhas ? vis.pele : vis.sombra;
+    c.beginPath(); if (vis.orelhas) { c.moveTo(25, 34); c.lineTo(14, 27); c.lineTo(24, 42); } else c.ellipse(26, 38, 3.4, 4.8, 0, 0, TAU); c.closePath(); c.fill(); c.stroke();
+    // olho: dourado com estrela se o Olho de Odin está equipado
+    const ex = 40, ey = 37.5, cc = olho ? "#f0b400" : vis.olho;
+    if (olho) { const g = c.createRadialGradient(ex, ey, 1, ex, ey, 9); g.addColorStop(0, "rgba(255,210,80," + (0.55 * pulso) + ")"); g.addColorStop(1, "rgba(0,0,0,0)"); c.fillStyle = g; c.fillRect(ex - 10, ey - 10, 20, 20); }
+    c.fillStyle = "#fdfbf4"; c.lineWidth = 1.1; c.beginPath(); c.ellipse(ex, ey, 4.6, 4.5, 0, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = cc; c.beginPath(); c.arc(ex + 1, ey + 0.3, 3.3, 0, TAU); c.fill();
+    if (olho) { c.strokeStyle = "#fff6c0"; c.lineWidth = 1.1; c.beginPath(); c.moveTo(ex - 1.6, ey + 0.3); c.lineTo(ex + 3.6, ey + 0.3); c.moveTo(ex + 1, ey - 2.6); c.lineTo(ex + 1, ey + 3.2); c.stroke(); }
+    else { c.fillStyle = "#101a24"; c.beginPath(); c.arc(ex + 1.4, ey + 0.3, 1.5, 0, TAU); c.fill(); }
+    c.fillStyle = "#fff"; c.beginPath(); c.arc(ex - 0.2, ey - 1.4, 1, 0, TAU); c.fill();
+    c.strokeStyle = "rgba(40,24,12,0.85)"; c.lineWidth = 1.6; c.beginPath(); c.moveTo(ex - 4.4, ey - 5.2); c.lineTo(ex + 4.4, ey - 4.2); c.stroke();
+    if (olho) { c.save(); c.globalCompositeOperation = "lighter"; c.lineCap = "round"; for (const [lw, al] of [[3, 0.2 * pulso], [1.1, 0.95 * pulso]]) { c.lineWidth = lw; c.strokeStyle = "rgba(110,245,255," + al + ")"; c.beginPath(); c.moveTo(34, 43); c.lineTo(36, 48); c.moveTo(34, 46); c.lineTo(37, 46.5); c.stroke(); } c.restore(); }
+    // elmo de perfil com chifre e faixa dourada
+    const hg = c.createLinearGradient(0, 12, 0, 32); hg.addColorStop(0, "#e6eef4"); hg.addColorStop(1, "#7d8a96");
+    c.fillStyle = hg; c.strokeStyle = OUT; c.lineWidth = 1.6;
+    c.beginPath(); c.moveTo(16, 33); c.quadraticCurveTo(14, 11, 33, 10); c.quadraticCurveTo(50, 12, 48.5, 31); c.quadraticCurveTo(32, 28, 16, 33); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = "#e0a93f"; c.beginPath(); c.moveTo(15.5, 29); c.quadraticCurveTo(32, 25.5, 49, 28.5); c.lineTo(48.6, 32.2); c.quadraticCurveTo(32, 29, 15.8, 33); c.closePath(); c.fill(); c.stroke();
+    c.strokeStyle = "#f1e7cf"; c.lineWidth = 3; c.beginPath(); c.moveTo(30, 18); c.quadraticCurveTo(24, 14, 26, 4); c.stroke();
+    c.fillStyle = "rgba(255,255,255,0.4)"; c.beginPath(); c.ellipse(26, 17, 5, 2.2, -0.5, 0, TAU); c.fill();
+    c.fillStyle = "#2a3540"; c.beginPath(); c.moveTo(48, 28); c.lineTo(50, 38); c.lineTo(46, 36); c.closePath(); c.fill();   // protetor do nariz
+}
+
+/* ===== ASAS DE GELO E LUZ (desenhadas em vetor, inspiradas no desenho de referência) =====
+   Três "braços" de penas (alto, meio e baixo, o mais longo), penas de cristal azul-gelo com contorno dourado, cristais na raiz
+   e fitas de runas. A asa estática é pré-desenhada num canvas; a cada quadro só gira, abre e brilha. */
+const ASAS_COM_OLHO = true;   // as asas aparecem quando o Olho de Odin está equipado
+function asasAtivas() { return !!(jogadorAtual.equip && jogadorAtual.equip.asas); }
+const ASA_DEF = { S: 2, W: 80, H: 140, ox: 8, oy: 74 };
+let _asaCv = null;
+function criarAsaCanvas() {
+    const D = ASA_DEF, cv = document.createElement("canvas"); cv.width = D.W * D.S; cv.height = D.H * D.S;
+    const c = cv.getContext("2d"); c.scale(D.S, D.S); c.translate(D.ox, D.oy); c.lineJoin = "round"; c.lineCap = "round";
+    // braços: ângulo central (0 = para fora; negativo = para cima), leque, comprimento, largura da pena, curvatura da linha dourada
+    const ARMS = [
+        { a: -1.28, n: 8, spread: 0.62, len: 56, wid: 6.6, curv: -9 },
+        { a: -0.5, n: 7, spread: 0.56, len: 47, wid: 6.0, curv: -5 },
+        { a: 0.42, n: 9, spread: 0.72, len: 64, wid: 7.0, curv: 9 }
+    ];
+    const pena = (ang, len, wid, brilho) => {
+        c.save(); c.rotate(ang);
+        const g = c.createLinearGradient(0, 0, len, 0); g.addColorStop(0, "#f7fdff"); g.addColorStop(0.45, brilho ? "#e2f2ff" : "#d2e8fb"); g.addColorStop(1, "#8fbdea");
+        c.fillStyle = g; c.strokeStyle = "rgba(84,128,190,0.85)"; c.lineWidth = 0.7;
+        c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(len * 0.42, -wid * 1.05, len, len * 0.03); c.quadraticCurveTo(len * 0.5, wid * 0.8, 0, 0); c.closePath(); c.fill(); c.stroke();
+        c.strokeStyle = "rgba(255,255,255,0.9)"; c.lineWidth = 0.6; c.beginPath(); c.moveTo(len * 0.06, 0); c.lineTo(len * 0.92, len * 0.025); c.stroke();   // haste
+        c.strokeStyle = "rgba(120,170,225,0.45)"; c.lineWidth = 0.4; for (let k = 1; k < 6; k++) { const u = k / 6; c.beginPath(); c.moveTo(len * u, len * 0.02 * u); c.lineTo(len * (u + 0.1), -wid * 0.55 * (1 - u)); c.stroke(); c.beginPath(); c.moveTo(len * u, len * 0.02 * u); c.lineTo(len * (u + 0.1), wid * 0.45 * (1 - u)); c.stroke(); }
+        // brilho dourado na ponta
+        c.fillStyle = "rgba(255,226,140,0.55)"; c.beginPath(); c.moveTo(len * 0.86, 0); c.lineTo(len, len * 0.03); c.lineTo(len * 0.86, wid * 0.12); c.closePath(); c.fill();
+        c.restore();
+    };
+    // ordem: braço de baixo (atrás), meio, alto; dentro de cada braço, das penas externas para as internas
+    for (const ai of [2, 1, 0]) {
+        const A = ARMS[ai];
+        // penas coberteiras curtas ao longo do braço
+        for (let i = 0; i < A.n; i++) {
+            const u = i / (A.n - 1), ang = A.a - A.spread / 2 + A.spread * u, len = A.len * (1 - 0.34 * Math.abs(u - (ai === 2 ? 0.1 : 0.9)) * (ai === 2 ? 1.2 : 1));
+            pena(ang, len, A.wid, i % 2 === 0);
+        }
+        for (let i = 0; i < A.n - 1; i++) { const u = (i + 0.5) / (A.n - 1), ang = A.a - A.spread / 2 + A.spread * u; c.save(); c.translate(Math.cos(ang) * A.len * 0.22, Math.sin(ang) * A.len * 0.22); pena(ang, A.len * 0.5, A.wid * 0.8, true); c.restore(); }
+        // linha dourada do bordo, com volutas
+        const tx = Math.cos(A.a - A.spread / 2) * A.len * 0.96, ty = Math.sin(A.a - A.spread / 2) * A.len * 0.96;
+        const cx = Math.cos(A.a) * A.len * 0.5, cy = Math.sin(A.a) * A.len * 0.5 + A.curv;
+        c.strokeStyle = "rgba(255,214,110,0.28)"; c.lineWidth = 4; c.beginPath(); c.moveTo(2, 0); c.quadraticCurveTo(cx, cy, tx, ty); c.stroke();
+        c.strokeStyle = "#e6b650"; c.lineWidth = 1.5; c.beginPath(); c.moveTo(2, 0); c.quadraticCurveTo(cx, cy, tx, ty); c.stroke();
+        c.strokeStyle = "#fff3b8"; c.lineWidth = 0.6; c.beginPath(); c.moveTo(2, 0); c.quadraticCurveTo(cx, cy, tx, ty); c.stroke();
+        for (const u of [0.3, 0.5, 0.7]) {   // voluta
+            const px = (1 - u) * (1 - u) * 2 + 2 * (1 - u) * u * cx + u * u * tx, py = (1 - u) * (1 - u) * 0 + 2 * (1 - u) * u * cy + u * u * ty;
+            c.strokeStyle = "#e6b650"; c.lineWidth = 0.9; c.beginPath(); c.arc(px + 1.2, py + 2, 2.4, -2.6, 1.8); c.stroke();
+            c.fillStyle = "#fff6c8"; c.beginPath(); c.arc(px, py, 0.9, 0, TAU); c.fill();
+        }
+    }
+    // cristais na raiz
+    for (const [a, l] of [[-1.5, 15], [-1.05, 17], [-0.55, 15], [-0.05, 13], [0.45, 12]]) {
+        c.save(); c.rotate(a); const g = c.createLinearGradient(0, 0, l, 0); g.addColorStop(0, "#f2feff"); g.addColorStop(1, "#6fc8ff");
+        c.fillStyle = g; c.strokeStyle = "rgba(255,255,255,0.95)"; c.lineWidth = 0.7;
+        c.beginPath(); c.moveTo(-2, 0); c.lineTo(l * 0.35, -3.4); c.lineTo(l, 0); c.lineTo(l * 0.35, 3.4); c.closePath(); c.fill(); c.stroke();
+        c.strokeStyle = "rgba(255,255,255,0.7)"; c.lineWidth = 0.4; c.beginPath(); c.moveTo(0, 0); c.lineTo(l * 0.9, 0); c.stroke(); c.restore();
+    }
+    return cv;
+}
+// Uma asa. lado = +1 (direita) ou -1 (esquerda); rot = giro; esc = encolhimento horizontal (vista de lado)
+function desenharAsa(c, lado, rot, esc, fl) {
+    if (!_asaCv) _asaCv = criarAsaCanvas();
+    const D = ASA_DEF;
+    c.save(); c.scale(lado * esc * 0.85, 0.85); c.rotate(rot);
+    if (fl) c.filter = "brightness(2.2)";
+    c.drawImage(_asaCv, -D.ox, -D.oy, D.W, D.H);
+    c.restore();
+}
+function desenharAsasHeroi(c, vista, fl2, bob, mov, dash, fl, atras) {
+    const t = T * 0.001, bate = dash ? -0.34 : mov ? Math.sin(T * 0.011) * 0.13 - 0.04 : Math.sin(t * 3.1) * 0.06, aberta = dash ? 0.78 : 1;
+    const rx = vista === "s" ? 0 : 5.5, ry = -40 - bob;
+    c.save(); c.translate(0, 0);
+    // halo
+    c.save(); c.globalCompositeOperation = "lighter";
+    const hg = c.createRadialGradient(0, ry - 8, 4, 0, ry - 8, 66); hg.addColorStop(0, "rgba(190,230,255," + (0.3 + 0.1 * Math.sin(T * 0.004)) + ")"); hg.addColorStop(1, "rgba(190,230,255,0)");
+    c.fillStyle = hg; c.beginPath(); c.arc(0, ry - 8, 66, 0, TAU); c.fill(); c.restore();
+    if (vista === "s") {
+        // de lado as asas ficam para trás, mais estreitas
+        for (const [k, esc, rot] of [[0, 0.5, -0.5 + bate * 0.7], [1, 0.62, -0.25 + bate]]) { c.save(); c.translate(-fl2 * (2 + k), ry); desenharAsa(c, -fl2, rot * -fl2 * -1, esc * aberta, fl); c.restore(); }
+    } else {
+        c.save(); c.translate(-rx, ry); desenharAsa(c, -1, -0.2 * (atras ? 0.7 : 1) + bate, aberta, fl); c.restore();
+        c.save(); c.translate(rx, ry); desenharAsa(c, 1, -0.2 * (atras ? 0.7 : 1) + bate, aberta, fl); c.restore();
+    }
+    // fitas de runas douradas que acompanham o movimento
+    if (!fl) {
+        c.save(); c.globalCompositeOperation = "lighter";
+        for (const lado of (vista === "s" ? [-fl2] : [-1, 1])) {
+            const bx = lado * (vista === "s" ? 8 : 46), by = ry - 14, CP = vista === "s" ? 40 : 26;
+            c.strokeStyle = "rgba(230,242,255,0.2)"; c.lineWidth = 5; c.beginPath();
+            for (let i = 0; i <= 14; i++) { const u = i / 14, x = bx + lado * u * CP, y = by + Math.sin(u * 3.2 + T * 0.004) * 6 * u - u * 10; i ? c.lineTo(x, y) : c.moveTo(x, y); }
+            c.stroke();
+            for (let i = 1; i <= 4; i++) { const u = i / 5, x = bx + lado * u * CP, y = by + Math.sin(u * 3.2 + T * 0.004) * 6 * u - u * 10; desenharRuna(c, TIPOS_RUNA[i % 4], x, y, 3.2, "rgba(255,226,140," + (0.85 * (1 - u * 0.5)) + ")", 1.2); }
+        }
+        c.restore();
+    }
+    c.restore();
+}
+</script>
+<script>
+// ===== Artefato dos Elfos da Luz (Ljósálfar): Asas de Luz =====
+// Não depende do Olho de Odin. Tecidas pelos Elfos da Luz com a claridade do sol de Alfheim e metal rúnico dourado.
+// NPC "ljos" mora em Alfheim, perto de uma casa. E -> diálogo com S / N.
+SLOTS.push({ id: "asas", nome: "Asas" });
+ITENS.asas_ljos = {
+    nome: "Asas de Luz dos Ljósálfar", tipo: "asas", icone: "asas", raridade: "Mítico",
+    stats: { dmg: 0.06, dr: 0.05, hp: 30 },
+    desc: "Não foram feitas por vikings nem por deuses da guerra: foram tecidas pelos Elfos da Luz com a claridade do sol de Alfheim e metal rúnico dourado. Aparecem nas costas do herói."
+};
+
+// Gate futuro: além de Jötunheim aberto, o jogador precisará de mais um item (a definir). Por enquanto sempre verdadeiro.
+function ljosItemExtra() { return true; }
+function jotunheimAberto() { return !!(jogadorAtual.quests.j4 && jogadorAtual.quests.j4.estado === "feita"); }
+function ljosLiberado() { return jotunheimAberto() && ljosItemExtra(); }
+
+QUESTS.push(
+    { id: "lj1", mundo: "ljos", tipo: "main", giver: "ljos", titulo: "O Primeiro Fio de Sol", desc: "O tear dos Ljósálfar precisa de luz pura. Colete 6 cristais espalhados pelos mundos.", chave: "coletar:cristal", n: 6, xp: 600, equip: "Épico" },
+    { id: "lj2", mundo: "ljos", tipo: "main", giver: "ljos", req: "lj1", titulo: "Sombras no Tear", desc: "Elfos sombrios roubam fios de luz. Derrote 10 deles.", chave: "kill:elfonegro", n: 10, xp: 800, equip: "Épico" },
+    { id: "lj3", mundo: "ljos", tipo: "main", giver: "ljos", req: "lj2", titulo: "Luz que se Perdeu", desc: "Os espíritos do bosque guardam luz esquecida. Dissipe 15 deles para libertá-la.", chave: "kill:espirito", n: 15, xp: 1000, equip: "Lendário" },
+    { id: "lj4", mundo: "ljos", tipo: "main", giver: "ljos", req: "lj3", titulo: "O Metal Dourado", desc: "O metal rúnico dourado jaz sob a guarda de Eikþyrnir, na caverna de Alfheim. Derrote-o.", chave: "boss:eik", n: 1, xp: 2500, item: "asas_ljos" }
+);
+
+FALAS.ljos = function () {
+    const st = jogadorAtual.ljos, q = id => (jogadorAtual.quests[id] && jogadorAtual.quests[id].estado) || "";
+    if (!st) return "Salve, viajante. A luz que você carrega me chamou a atenção... Sou Aelindor, tecelão dos Ljósálfar. Existe um artefato do meu povo, algo que poucos mortais já viram. Quer saber sobre ele?";
+    if (st === "recusou") {
+        if (ljosLiberado()) return "Você voltou, e Jötunheim já se abriu para os seus passos. Agora talvez esteja pronto. Quer ouvir sobre o artefato da luz?";
+        return "Ainda não é a hora, viajante. Volte quando Jötunheim estiver aberto para você e tiver em mãos o que ainda falta.";
+    }
+    const lore = "Chamamos de Asas de Luz. Não foram feitas por vikings nem por deuses da guerra. Foram tecidas pelos Ljósálfar, os Elfos da Luz, mais brilhantes que o próprio sol, usando a claridade do sol de Alfheim e metal rúnico dourado. ";
+    if (q("lj4") === "feita") return "As asas são suas, e a luz de Alfheim voa com você. Use-as com honra, viajante.";
+    if (q("lj3") === "feita") return lore + "Só falta o metal rúnico dourado, que Eikþyrnir guarda na caverna de Alfheim.";
+    if (q("lj2") === "feita") return lore + "Já temos os fios e a sombra afastada. Agora a luz esquecida precisa voltar ao tear.";
+    if (q("lj1") === "feita") return lore + "Os fios estão prontos, mas elfos sombrios os cobiçam. Afaste-os.";
+    return lore + "Para tecê-las preciso de luz pura. O próximo passo é seu: aceite o meu pedido abaixo.";
+};
+
+let dlgNpcAtual = null;
+function responderLjos(sim) {
+    const npc = dlgNpcAtual; if (!npc || npc.id !== "ljos") return;
+    if (jogadorAtual.ljos === "aceitou") return;
+    if (jogadorAtual.ljos === "recusou" && !ljosLiberado()) return;
+    jogadorAtual.ljos = sim ? "aceitou" : "recusou";
+    salvarJogo();
+    if (sim) { aviso("Artefato dos Elfos da Luz: o tecelão contou a sua história", "#ffe9a0", 4); sfx("bless"); }
+    abrirDialogo(npc);
+}
+function botoesLjos(box) {
+    const st = jogadorAtual.ljos;
+    if (st === "aceitou") return false;
+    if (st === "recusou" && !ljosLiberado()) return true;
+    const mk = (txt, sim) => { const b = document.createElement("button"); b.type = "button"; b.className = "btn-menu pequeno"; b.textContent = txt; b.addEventListener("click", () => responderLjos(sim)); box.appendChild(b); };
+    mk("[S] Sim, conte-me", true); mk("[N] Agora não", false);
+    return true;
+}
+
+function desenharElfoLuz(c, n) {
+    const x = n.x, y = n.y, b = Math.sin(T * 0.003 + x) * 1.2, p = 0.5 + 0.5 * Math.sin(T * 0.004);
+    const g = c.createRadialGradient(x, y - 30, 4, x, y - 30, 60); g.addColorStop(0, "rgba(255,240,170," + (0.35 + 0.15 * p) + ")"); g.addColorStop(1, "rgba(255,240,170,0)");
+    c.fillStyle = g; c.beginPath(); c.arc(x, y - 30, 60, 0, TAU); c.fill();
+    elipse(c, x + 4, y, 16, 6, "rgba(8,20,30,0.3)");
+    c.strokeStyle = "#8a6a2a"; c.lineWidth = 2; c.fillStyle = "#f6f0d8";
+    c.beginPath(); c.moveTo(x - 13, y); c.quadraticCurveTo(x - 15, y - 26, x - 7, y - 36 + b); c.lineTo(x + 7, y - 36 + b); c.quadraticCurveTo(x + 15, y - 26, x + 13, y); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = "#e6b93f"; c.fillRect(x - 12, y - 18, 24, 3);
+    c.fillStyle = "#e6b93f"; c.beginPath(); c.moveTo(x - 7, y - 36 + b); c.lineTo(x, y - 24); c.lineTo(x + 7, y - 36 + b); c.closePath(); c.fill();
+    c.fillStyle = "#ffe9a8"; c.beginPath(); c.arc(x, y - 44 + b, 10, Math.PI * 0.9, Math.PI * 2.1); c.lineTo(x + 10, y - 34 + b); c.lineTo(x - 10, y - 34 + b); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = "#f3dcc0"; c.beginPath(); c.arc(x, y - 41 + b, 7, 0, TAU); c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(x - 7, y - 42 + b); c.lineTo(x - 14, y - 47 + b); c.lineTo(x - 6, y - 38 + b); c.closePath(); c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(x + 7, y - 42 + b); c.lineTo(x + 14, y - 47 + b); c.lineTo(x + 6, y - 38 + b); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = "#3a7f5a"; c.fillRect(x - 3.5, y - 42 + b, 2, 2); c.fillRect(x + 1.5, y - 42 + b, 2, 2);
+    c.strokeStyle = "#e6b93f"; c.lineWidth = 3; c.beginPath(); c.moveTo(x + 18, y); c.lineTo(x + 18, y - 56); c.stroke();
+    c.fillStyle = "rgba(255,240,150,0.95)"; c.beginPath(); c.arc(x + 18, y - 60, 5 + p * 2, 0, TAU); c.fill();
+    desenharMarcadorNpc(c, n, x, y);
+}
+</script>
+<script>
 /* camtras.js: câmera traseira 2.5D (modo opcional). Céu com horizonte, chão em perspectiva e personagens em escala por profundidade */
 
 const TRAS = { back: 240, foc: 336, hc: 206, hor: 0.30, fmax: 2600 };
@@ -9239,6 +10200,7 @@ function pressionarTecla(e) {
     if (k === "i" && estado === "inventario") { fecharPainel(); return; }
     if (k === "j" && estado === "quests") { fecharPainel(); return; }
     if (k === "m" && estado === "mapa") { fecharPainel(); return; }
+    if (painelAberto === "p-dialogo" && dlgNpcAtual && dlgNpcAtual.id === "ljos" && (k === "s" || k === "n")) { responderLjos(k === "s"); return; }
     if (estado !== "jogo") return;
     if (k === "q" || k === "shift") investida();
     else if (k === "e") interagir();
@@ -9340,6 +10302,7 @@ function interagir() {
         else aviso("A caverna de Ymir está selada pela geada eterna. O gigante desperta mais adiante na saga.", "#9cc3e6", 4);
     }
     else if (alvo.tipo === "exp") expedInteragir(alvo);
+    else if (alvo.tipo === "oculto") investigarPortalOculto();
     else if (alvo.tipo === "pilar") ativarPilar(alvo.id);
     else if (alvo.tipo === "selada") aviso("Runas antigas selam esta caverna. Ainda não é a hora.", "#b38cff", 3);
     else if (alvo.tipo === "saida") sairDaCaverna();
@@ -9467,7 +10430,7 @@ function apagarItem(it) {
     renderInventario();
 }
 
-const GLIFO_SLOT = { arma: "⚔", elmo: "⛑", armadura: "▣", amuleto: "◈", olho: "ᛟ", botas: "▟", luvas: "✋", capa: "❖", anel: "○", cinto: "═", hugin: "ᚺ", munin: "ᛗ" };
+const GLIFO_SLOT = { arma: "⚔", elmo: "⛑", armadura: "▣", amuleto: "◈", olho: "ᛟ", botas: "▟", luvas: "✋", capa: "❖", anel: "○", cinto: "═", hugin: "ᚺ", munin: "ᛗ", asas: "✦" };
 const FILTROS_INV = [["todos", "Tudo"], ["arma", "Armas"], ["armadura", "Armaduras"], ["acess", "Acessórios"]];
 let filtroInv = "todos";
 function passaFiltro(it) {
@@ -9496,6 +10459,7 @@ function desenharPreviaHeroi() {
     try { c.save(); c.scale(2.3, 2.3); desenharJogador(c); c.restore(); } catch (e) { c.restore(); }
     P.x = sv.x; P.y = sv.y; P.face = sv.face; P.inv = sv.inv; P.dash = sv.dash; P.shield = sv.shield; P.hitFlash = sv.hf; P.swing = sv.sw; P.supOn = sv.sup;
     const rr = COR_RARIDADE[jogadorAtual.raridade] || "#fff";
+    desenharRetratoHeroi(c, cv.width - 76, 8, 68);
     c.fillStyle = rr; c.font = "700 13px 'Cinzel', serif"; c.textAlign = "center"; c.fillText(jogadorAtual.raca || "", 100, 222);
 }
 function renderInventario() {
@@ -9629,7 +10593,7 @@ function abrirQuests() {
     lista.innerHTML = "";
     const ativas = QUESTS.filter(q => estadoQuest(q) === "ativa"), feitas = QUESTS.filter(q => estadoQuest(q) === "feita");
     const res = document.createElement("p"); res.className = "suave";
-    res.textContent = "Missões concluídas: Midgard " + missoesFeitas("midgard") + ", Alfheim " + missoesFeitas("alfheim") + ", Svartalfheim " + missoesFeitas("svartalfheim") + ". Midgard: 35 abrem o Portal das Nornas e 100 abrem Alfheim; cada mundo seguinte pede 100.";
+    res.textContent = "Missões concluídas: Midgard " + missoesFeitas("midgard") + ", Alfheim " + missoesFeitas("alfheim") + ", Svartalfheim " + missoesFeitas("svartalfheim") + ". Midgard: 15 abrem o Portal das Nornas e 30 abrem Alfheim; cada mundo seguinte pede 30, com missões cada vez mais difíceis.";
     lista.appendChild(res);
     if (!ativas.length && !feitas.length && !(olhoMissao() || {}).acao) {
         const p = document.createElement("p"); p.className = "suave";
@@ -9643,6 +10607,7 @@ function abrirQuests() {
 }
 
 function abrirDialogo(npc) {
+    dlgNpcAtual = npc;
     document.getElementById("dlg-nome").textContent = npc.nome;
     const fala = FALAS[npc.id];
     document.getElementById("dlg-fala").textContent = typeof fala === "function" ? fala() : fala;
@@ -9664,6 +10629,7 @@ function renderDialogo(npc) {
         if (m && m.etapa === 3 && m.acao === "ouvir") box.appendChild(cartaOlho(m, () => { renderDialogo(npc); document.getElementById("dlg-fala").textContent = FALAS.verdandi(); }));
     }
     if (npc.id === "mimir") renderMimir(box, () => renderDialogo(npc));
+    if (npc.id === "ljos" && botoesLjos(box)) return;
     if (!lista.length && npc.id !== "verdandi") {
         const p = document.createElement("p"); p.className = "suave"; p.textContent = "Por ora não tenho mais nada a pedir. Volte quando tiver mais histórias."; box.appendChild(p);
     }
@@ -9861,6 +10827,7 @@ function desenharHUD(c) {
     const nLinhas = (ira ? 1 : 0) + (bencao ? 1 : 0) + (dreal ? 1 : 0);
     const hBox = 50 + (S.runas ? 26 : 0) + nLinhas * 13;
     caixa(c, 12, 12, 204, hBox);
+    desenharRetratoHeroi(c, 222, 12, 50);
     c.font = "700 11px 'Cinzel', serif"; c.fillStyle = corRar;
     c.fillText(rc ? rc.name : "", 20, 26);
     c.fillStyle = "#f1e3b8"; c.textAlign = "right"; c.fillText("Nv " + jogadorAtual.nivel, 208, 26); c.textAlign = "left";
@@ -9936,7 +10903,7 @@ function desenharHUD(c) {
     }
     c.textAlign = "center"; c.font = "700 10px 'Cinzel', serif"; c.fillStyle = "#f1e3b8";
     const reg = REGIOES.find(r => r.id === regiaoAtual);
-    c.fillText(mapaAtual === "Midgard_Aberto" ? (reg ? reg.nome : defMundo.nome) : mapaAtual === "Interior_Nornas" ? "Domínio das Nornas" : "Caverna: " + DEF[chefeAtual].nome.split(",")[0], mx + mw / 2, my + mh + 14);
+    c.fillText(mapaAtual === "Midgard_Aberto" ? (reg ? reg.nome : defMundo.nome) : mapaAtual === "Interior_Nornas" ? "Domínio das Nornas" : chefeAtual === "ondas" ? "Sala das Ondas" : "Caverna: " + DEF[chefeAtual].nome.split(",")[0], mx + mw / 2, my + mh + 14);
 
     // habilidades Z X C V (canto inferior direito)
     desenharHabilidades(c, hs);
